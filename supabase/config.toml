@@ -1,0 +1,5 @@
+project_id = "tareas-fk"
+
+[auth]
+site_url = "https://francobh.github.io/tareas-fk/"
+additional_redirect_urls = ["https://francobh.github.io/tareas-fk/**", "http://localhost:3461/**"]
