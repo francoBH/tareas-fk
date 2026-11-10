@@ -43,7 +43,7 @@ body{margin:0}
 .side-pie{margin-top:auto;display:flex;flex-direction:column;gap:8px;border-top:1px solid var(--b1);padding-top:12px}
 .yo{display:flex;align-items:center;gap:10px;padding:0 6px}
 .yo b{display:block;font-size:13px;font-weight:600}
-.yo span{display:block;font-size:12px;color:var(--t3)}
+.yo div span{display:block;font-size:12px;color:var(--t3)}
 .mini{height:30px;padding:0 10px;border-radius:8px;border:1px solid var(--b2) !important;font-size:12px;color:var(--t2);display:inline-flex;align-items:center;gap:7px}
 .mini:hover{background:var(--bg-4)}
 /* principal */
@@ -239,6 +239,7 @@ button.celda:hover{background:var(--bg-4)}
   .side{display:none}
   .main{padding:12px 10px 16px;gap:10px}
   .tabs-movil{display:flex;gap:6px}
+  .tabs-movil{align-items:center}
   .tabs-movil .nav{height:34px;flex:1;justify-content:center;padding:0 8px;font-size:12.5px}
   .tabs-movil .nav .cnt{margin-left:4px}
   .head h1{font-size:20px}
@@ -274,3 +275,24 @@ body{font-family:"Hanken Grotesk",system-ui,sans-serif}
 .entrar-btn:disabled{opacity:.5;cursor:not-allowed}
 .entrar-error{font-size:12.5px;color:var(--neg)}
 .entrar-ok{font-size:13px;color:var(--t1);background:var(--ac-soft);border-radius:10px;padding:10px 12px;line-height:1.45}
+/* mejoras de estética (10 nov) */
+.det{animation:det-entrar .2s cubic-bezier(.2,.8,.2,1)}
+@keyframes det-entrar{from{transform:translateX(18px);opacity:.6}to{transform:none;opacity:1}}
+.pop{animation:pop-entrar .12s ease-out}
+@keyframes pop-entrar{from{transform:translateY(-3px);opacity:0}to{transform:none;opacity:1}}
+.solo-movil{display:none !important}
+.cuenta-btn{width:36px;height:36px;flex:none;border-radius:10px;align-items:center;justify-content:center}
+.cuenta-btn:hover{background:var(--bg-4)}
+.pop .yo b{display:block;font-size:13px;font-weight:600}
+.pop .yo div span{display:block;font-size:12px;color:var(--t3)}
+.carga{flex:1;display:flex;align-items:center;justify-content:center}
+.carga .marca-logo{width:44px;height:44px;border-radius:13px;font-size:16px;animation:latido 1.2s ease-in-out infinite}
+@keyframes latido{0%,100%{opacity:.55;transform:scale(.96)}50%{opacity:1;transform:scale(1)}}
+.entrar-caja .marca-logo{width:40px;height:40px;border-radius:12px;font-size:15px}
+.entrar-pie{font-size:12px;color:var(--t3);text-align:center}
+@container tf (max-width: 760px){
+  .solo-movil{display:inline-flex !important}
+  .head{gap:8px}
+  .head .btn-pri{padding:0 12px}
+}
+@media (prefers-reduced-motion: reduce){.det,.pop,.carga .marca-logo{animation:none}}

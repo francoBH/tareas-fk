@@ -34,7 +34,7 @@ export default function App() {
   };
 
   const clase = "tf " + (tema === "claro" ? "claro" : "");
-  if (sesion === undefined || (sesion && !yo && yo !== false)) return <div className={clase} />;
+  if (sesion === undefined || (sesion && !yo && yo !== false)) return <div className={clase}><div className="carga"><span className="marca-logo">FK</span></div></div>;
   if (!sesion) return <div className={clase}><Entrar /></div>;
   if (yo === false) {
     return (

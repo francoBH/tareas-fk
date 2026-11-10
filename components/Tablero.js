@@ -483,6 +483,17 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
         }}>{borrarConf ? "Tocar otra vez para borrar" : "Borrar tarea"}</Opt>
       </>);
     }
+    if (pop.tipo === "cuenta") {
+      return (<>
+        <div className="yo" style={{ padding: "8px 10px" }}>
+          <span className="cara xg" style={{ background: yoP.color }}>{yoP.iniciales}</span>
+          <div><b>{yoP.nombre}</b><span>{yoP.rol || ""}</span></div>
+        </div>
+        <span className="psep" />
+        <Opt onClick={() => { cambiarTema(); setPop(null); }}>{tema === "claro" ? "Tema oscuro" : "Tema claro"}</Opt>
+        <Opt cls="peligro" onClick={() => supabase.auth.signOut()}>Salir</Opt>
+      </>);
+    }
     if (pop.tipo === "fecha") {
       const actual = valorDe(tg, "fecha");
       const poner = (f) => { aplicar(tg, { fecha: f }); setPop(null); };
@@ -696,7 +707,6 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
               onChange={(ev) => setCom(ev.target.value)}
               onKeyDown={async (ev) => { if (ev.key === "Enter" && !ev.shiftKey) { ev.preventDefault(); if (await enviarComentario(com, null)) setCom(""); } }} />
             <div className="comp-barra">
-              <span className="eico" aria-hidden="true"><span className="aa">Aa</span></span>
               <button type="button" className="eico" onClick={() => setCom((c) => c + (c && !/\s$/.test(c) ? " @" : "@"))} aria-label="Nombrar a alguien">
                 <Svg ancho={1.8}><circle cx="12" cy="12" r="4" /><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8" /></Svg>
               </button>
@@ -716,11 +726,39 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
     if (id && tareas.some((t) => t.id === id)) { setAbierta(id); window.history.replaceState(null, "", window.location.pathname); }
   }, [cargando]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  /* Escape cierra lo que esté arriba: primero el menú, después el panel. Un campo que ya
+     usó el Escape (cancelar una edición) lo marca con preventDefault y acá se respeta. */
+  useEffect(() => {
+    const alTeclear = (e) => {
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      const t = e.target;
+      const escribiendo = t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA");
+      if (pop) { setPop(null); return; }
+      if (abierta && !escribiendo) { setAbierta(null); }
+    };
+    window.addEventListener("keydown", alTeclear);
+    return () => window.removeEventListener("keydown", alTeclear);
+  }, [pop, abierta]);
+
+  /* La pestaña del navegador dice cuántas hay para hoy o atrasadas, como Blue OS. */
+  const pendientesHoy = urgentes("todas");
+  useEffect(() => { document.title = pendientesHoy > 0 ? "(" + pendientesHoy + ") Tareas" : "Tareas"; }, [pendientesHoy]);
+
+  const nombresEquipo = personasLista.filter((p) => p.rol !== "Solo prueba").map((p) => p.nombre.split(" ")[0]).join(" · ");
+  const botonTema = (
+    <button type="button" className="mini" onClick={cambiarTema} aria-label="Cambiar tema">
+      {tema === "claro"
+        ? <Svg tam={14} ancho={1.7}><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5Z" /></Svg>
+        : <Svg tam={14} ancho={1.7}><circle cx="12" cy="12" r="4" /><path d="M12 2v2" /><path d="M12 20v2" /><path d="m4.9 4.9 1.4 1.4" /><path d="m17.7 17.7 1.4 1.4" /><path d="M2 12h2" /><path d="M20 12h2" /><path d="m6.3 17.7-1.4 1.4" /><path d="m19.1 4.9-1.4 1.4" /></Svg>}
+      {tema === "claro" ? "Oscuro" : "Claro"}
+    </button>
+  );
+
 
   return (
     <div className={"tf " + (tema === "claro" ? "claro" : "")} ref={rootRef}>
       <aside className="side">
-        <div className="marca"><span className="marca-logo">FK</span><div><b>TAREAS</b><span>Franco · Katherine</span></div></div>
+        <div className="marca"><span className="marca-logo">FK</span><div><b>TAREAS</b><span>{nombresEquipo}</span></div></div>
         {navs.map((n) => {
           const c = urgentes(n.id);
           return (
@@ -737,12 +775,7 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
             <div><b>{yoP.nombre}</b><span>{yoP.rol || ""}</span></div>
           </div>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", padding: "0 4px", alignItems: "center" }}>
-            <button type="button" className="mini" onClick={cambiarTema} aria-label="Cambiar tema">
-              {tema === "claro"
-                ? <Svg tam={14} ancho={1.7}><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5Z" /></Svg>
-                : <Svg tam={14} ancho={1.7}><circle cx="12" cy="12" r="4" /><path d="M12 2v2" /><path d="M12 20v2" /><path d="m4.9 4.9 1.4 1.4" /><path d="m17.7 17.7 1.4 1.4" /><path d="M2 12h2" /><path d="M20 12h2" /><path d="m6.3 17.7-1.4 1.4" /><path d="m19.1 4.9-1.4 1.4" /></Svg>}
-              {tema === "claro" ? "Oscuro" : "Claro"}
-            </button>
+            {botonTema}
             <button type="button" className="mini salir" onClick={() => supabase.auth.signOut()}>Salir</button>
           </div>
         </div>
@@ -758,6 +791,9 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
               </button>
             );
           })}
+          <button type="button" className="solo-movil cuenta-btn" onClick={(e) => abrirPop(e, "cuenta", "cuenta", 220, 150)} aria-label="Tu cuenta">
+            <span className="cara g" style={{ background: yoP.color }}>{yoP.iniciales}</span>
+          </button>
         </div>
 
         <div className="head">
@@ -773,7 +809,7 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
             <Svg tam={14} ancho={1.8}><path d="M4 6h9" /><path d="M4 12h7" /><path d="M4 18h5" /><path d="M17 5v14" /><path d="m14 16 3 3 3-3" /></Svg>
             <span className="ocultar-movil">Ordenar por</span><b>{{ fecha: "Fecha", prioridad: "Prioridad", tipo: "Tipo", estado: "Estado", responsable: "Responsable" }[orden]}</b>
           </button>
-          <button type="button" className="btn-pri" onClick={() => abrirNueva("__top")}><IcoMas tam={14} />Nueva tarea</button>
+          <button type="button" className="btn-pri" onClick={() => abrirNueva("__top")}><IcoMas tam={14} />Nueva<span className="ocultar-movil">&nbsp;tarea</span></button>
         </div>
 
         <div className={"card " + (selIds.length ? "eligiendo" : "")}>
