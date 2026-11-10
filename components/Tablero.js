@@ -91,6 +91,104 @@ function Texto({ txt, P }) {
   return <span className="com-txt">{String(txt).split(re).filter(Boolean).map((p, i) => <span key={i} className={nombres.includes(p) ? "mencion" : ""}>{p}</span>)}</span>;
 }
 
+/* Achica las fotos grandes antes de subirlas (una foto de celular pesa 3–6 MB; así queda en
+   unos cientos de KB y sube rápido). Los GIF y las imágenes chicas van tal cual. */
+async function achicar(file) {
+  if (file.type === "image/gif" || file.size < 400 * 1024) return file;
+  try {
+    const bmp = await createImageBitmap(file);
+    const lado = 1920, k = Math.min(1, lado / Math.max(bmp.width, bmp.height));
+    const c = document.createElement("canvas");
+    c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
+    c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
+    const blob = await new Promise((r) => c.toBlob(r, "image/jpeg", 0.85));
+    return blob ? new File([blob], "foto.jpg", { type: "image/jpeg" }) : file;
+  } catch { return file; }
+}
+
+/* Las fotos de un comentario: miniaturas que se abren en grande al tocarlas. */
+function Fotos({ c, urls, onVer }) {
+  const lista = (c.imagenes || []).length ? c.imagenes.map((p, i) => urls[p] || (c.locales || [])[i]) : (c.locales || []);
+  if (!lista.length) return null;
+  return (
+    <div className="fotos">
+      {lista.map((u, i) => (
+        <button key={i} type="button" className={"foto" + (c.subiendo ? " subiendo" : "")} onClick={() => u && onVer(u)} aria-label="Ver imagen">
+          {u ? <img src={u} alt="" loading="lazy" /> : <span className="foto-hueco" />}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/* La caja de escribir, la misma para el comentario principal y para responder en el hilo:
+   texto, @ para nombrar, y fotos con el clip, pegando (⌘V) o arrastrando. */
+function Composer({ P, claves, placeholder, autoFocus, onEnviar, onCancelar, conCancelar }) {
+  const [txt, setTxt] = useState("");
+  const [archivos, setArchivos] = useState([]);
+  const [arrastrando, setArrastrando] = useState(false);
+  const inputRef = useRef(null);
+  const sumar = (files) => {
+    const imgs = [...files].filter((f) => f.type.startsWith("image/"));
+    if (!imgs.length) return;
+    setArchivos((a) => a.concat(imgs.slice(0, 8 - a.length).map((f) => ({ id: crypto.randomUUID(), file: f, url: URL.createObjectURL(f) }))));
+  };
+  const enviar = async () => {
+    if (!txt.trim() && !archivos.length) return;
+    const t = txt, a = archivos;
+    setTxt(""); setArchivos([]);
+    const ok = await onEnviar(t, a);
+    if (!ok) { setTxt(t); setArchivos(a); }
+  };
+  const m = /@([^\s@]*)$/.exec(txt);
+  const sugerir = m ? claves.map((k) => P[k]).filter((p) => sinTildes(p.nombre).includes(sinTildes(m[1]))) : [];
+  return (
+    <div className={"composer" + (arrastrando ? " arrastrando" : "")}
+      onDragOver={(e) => { if ([...e.dataTransfer.types].includes("Files")) { e.preventDefault(); setArrastrando(true); } }}
+      onDragLeave={() => setArrastrando(false)}
+      onDrop={(e) => { e.preventDefault(); setArrastrando(false); sumar(e.dataTransfer.files); }}>
+      {sugerir.length > 0 && (
+        <div className="sugerir">
+          {sugerir.map((p) => (
+            <button key={p.clave} type="button" className="opt" onClick={() => setTxt((c) => c.replace(/@([^\s@]*)$/, "@" + p.nombre + " "))}>
+              <span className="cara" style={{ background: p.color }}>{p.iniciales}</span>{p.nombre}
+            </button>
+          ))}
+        </div>
+      )}
+      {archivos.length > 0 && (
+        <div className="fotos fotos-borrador">
+          {archivos.map((a) => (
+            <span key={a.id} className="foto">
+              <img src={a.url} alt="" />
+              <button type="button" className="foto-x" aria-label="Quitar imagen" onClick={() => setArchivos((xs) => xs.filter((x) => x.id !== a.id))}><IcoX tam={11} /></button>
+            </span>
+          ))}
+        </div>
+      )}
+      <textarea placeholder={placeholder} value={txt} autoFocus={autoFocus} aria-label={placeholder}
+        onChange={(e) => setTxt(e.target.value)}
+        onPaste={(e) => { const f = [...(e.clipboardData?.files || [])]; if (f.length) { e.preventDefault(); sumar(f); } }}
+        onKeyDown={(e) => {
+          if (e.key === "Escape" && onCancelar) { e.preventDefault(); onCancelar(); }
+          if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); enviar(); }
+        }} />
+      <div className="comp-barra">
+        <button type="button" className="eico" onClick={() => inputRef.current?.click()} aria-label="Adjuntar imagen" title="Adjuntar imagen">
+          <Svg ancho={1.8}><path d="m20.5 11.5-8.3 8.3a5.2 5.2 0 0 1-7.4-7.4l8.6-8.6a3.5 3.5 0 0 1 4.9 4.9l-8.4 8.4a1.7 1.7 0 0 1-2.5-2.5l7.8-7.8" /></Svg>
+        </button>
+        <input ref={inputRef} type="file" accept="image/*" multiple hidden onChange={(e) => { sumar(e.target.files); e.target.value = ""; }} />
+        <button type="button" className="eico" onClick={() => setTxt((c) => c + (c && !/\s$/.test(c) ? " @" : "@"))} aria-label="Nombrar a alguien">
+          <Svg ancho={1.8}><circle cx="12" cy="12" r="4" /><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8" /></Svg>
+        </button>
+        <span className="esp" />
+        {conCancelar && <button type="button" className="btn-chico sec" onClick={onCancelar}>Cancelar</button>}
+        <button type="button" className="enviar" disabled={!txt.trim() && !archivos.length} aria-label="Enviar" onClick={enviar}><IcoEnviar /></button>
+      </div>
+    </div>
+  );
+}
+
 /* ════════════════════════════════════════════════════════════════════════════ */
 
 export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
@@ -98,9 +196,14 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
   const claves = useMemo(() => personasLista.map((p) => p.clave), [personasLista]);
   const yoP = P[yo];
   const [hoy, setHoy] = useState(hoyIso());
-  const [filas, setFilas] = useState([]);
-  const [coms, setComs] = useState([]);
-  const [cargando, setCargando] = useState(true);
+  /* Arranca con la última copia guardada en el navegador: abre al instante, aunque el celular
+     haya cerrado la pestaña, y se pone al día por detrás sin pantalla de carga. */
+  const cache = useMemo(() => { try { return JSON.parse(localStorage.getItem("tf-datos") || "null"); } catch { return null; } }, []);
+  const [filas, setFilas] = useState(() => cache?.filas || []);
+  const [coms, setComs] = useState(() => cache?.coms || []);
+  const [cargando, setCargando] = useState(() => !cache);
+  const [urls, setUrls] = useState({});
+  const [visor, setVisor] = useState(null);
   const [errorCarga, setErrorCarga] = useState(false);
 
   const [vista, setVista] = useState("todas");
@@ -134,6 +237,7 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
   const rootRef = useRef(null);
   const tt = useRef(null);
 
+  const salir = () => { try { localStorage.removeItem("tf-datos"); localStorage.removeItem("tf-yo"); } catch {} supabase.auth.signOut(); };
   const avisar = useCallback((t) => { setToast(t); clearTimeout(tt.current); tt.current = setTimeout(() => setToast(null), 2600); }, []);
 
   /* ── lectura y tiempo real ── */
@@ -149,19 +253,54 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
     setCargando(false);
   }, []);
 
+  /* Los cambios de los demás llegan DE A UNO y se aplican sobre lo que hay: antes cada cambio
+     volvía a leer el tablero entero (y pisaba lo que uno estaba moviendo). */
   useEffect(() => {
     cargar();
-    let t = null;
-    const recargar = () => { clearTimeout(t); t = setTimeout(cargar, 250); };
+    const aplicarCambio = (setter) => (p) => {
+      if (p.eventType === "DELETE") { const id = p.old?.id; if (id) setter((xs) => xs.filter((x) => x.id !== id)); return; }
+      const fila = p.new;
+      if (!fila?.id) return;
+      setter((xs) => {
+        const i = xs.findIndex((x) => x.id === fila.id);
+        if (i < 0) return xs.concat([fila]);
+        const n = xs.slice(); n[i] = { ...xs[i], ...fila }; return n;
+      });
+    };
     const canal = supabase.channel("tablero")
-      .on("postgres_changes", { event: "*", schema: "public", table: "tareas" }, recargar)
-      .on("postgres_changes", { event: "*", schema: "public", table: "comentarios" }, recargar)
+      .on("postgres_changes", { event: "*", schema: "public", table: "tareas" }, aplicarCambio(setFilas))
+      .on("postgres_changes", { event: "*", schema: "public", table: "comentarios" }, aplicarCambio(setComs))
       .subscribe();
     const reloj = setInterval(() => setHoy(hoyIso()), 60000);
-    const alVolver = () => { if (document.visibilityState === "visible") { setHoy(hoyIso()); cargar(); } };
+    /* Al volver a la pestaña se pone al día EN SILENCIO (sin pantalla de carga) y solo si estuvo
+       un rato afuera: lo que pasó mientras el celular dormía no llega por el canal en vivo. */
+    let afuera = 0;
+    const alVolver = () => {
+      if (document.visibilityState === "hidden") { afuera = Date.now(); return; }
+      setHoy(hoyIso());
+      if (afuera && Date.now() - afuera > 20000) cargar();
+    };
     document.addEventListener("visibilitychange", alVolver);
-    return () => { supabase.removeChannel(canal); clearInterval(reloj); clearTimeout(t); document.removeEventListener("visibilitychange", alVolver); };
+    return () => { supabase.removeChannel(canal); clearInterval(reloj); document.removeEventListener("visibilitychange", alVolver); };
   }, [cargar]);
+
+  /* La copia del navegador se guarda sola, un rato después del último cambio. */
+  useEffect(() => {
+    const t = setTimeout(() => {
+      try { localStorage.setItem("tf-datos", JSON.stringify({ filas: filas.filter((f) => !String(f.id).startsWith("tmp-")), coms: coms.filter((c) => !String(c.id).startsWith("tmp-")) })); } catch {}
+    }, 500);
+    return () => clearTimeout(t);
+  }, [filas, coms]);
+
+  /* Las imágenes son privadas: se piden links firmados (valen 7 días) para las que falten. */
+  useEffect(() => {
+    const faltan = [...new Set(coms.flatMap((c) => c.imagenes || []))].filter((p) => !urls[p]);
+    if (!faltan.length) return;
+    supabase.storage.from("adjuntos").createSignedUrls(faltan, 604800).then(({ data }) => {
+      if (!data) return;
+      setUrls((u) => { const n = { ...u }; data.forEach((d) => { if (d.signedUrl && !n[d.path]) n[d.path] = d.signedUrl; }); return n; });
+    });
+  }, [coms, urls]);
 
   /* Las tareas con sus comentarios armados en hilo. */
   const tareas = useMemo(() => {
@@ -243,24 +382,47 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
   const guardarNueva = async () => {
     const n = nueva;
     if (!n || !n.nombre.trim() || !n.tipo) return;
-    const fila = { nombre: n.nombre.trim(), tipo: n.tipo, estado: n.estado, prio: n.prio, resp: n.resp, fecha: n.fecha, creado_por: yo };
+    /* La tarea aparece YA, con un id provisorio, y se cambia por la de la base cuando vuelve. */
+    const id = crypto.randomUUID();
+    const fila = { id, nombre: n.nombre.trim(), tipo: n.tipo, estado: n.estado, prio: n.prio, resp: n.resp, fecha: n.fecha, creado_por: yo };
     setNueva({ ...n, nombre: "" });
+    setFilas((fs) => fs.concat([{ ...fila, creada: new Date().toISOString(), subtareas: [], seguidores: [], descripcion: "" }]));
     const { data, error } = await supabase.from("tareas").insert(fila).select().single();
-    if (error) { avisar("No se pudo crear la tarea."); return; }
-    setFilas((fs) => (fs.some((f) => f.id === data.id) ? fs : fs.concat([data])));
-    avisar("Tarea creada: " + data.nombre);
+    if (error) { setFilas((fs) => fs.filter((f) => f.id !== id)); avisar("No se pudo crear la tarea."); return; }
+    setFilas((fs) => fs.map((f) => (f.id === id ? data : f)));
   };
 
   const abrirTarea = (id) => { setAbierta(id); setPop(null); setEditTit(false); setEditDesc(false); setAgregandoSub(false); setResp(null); setEdit(null); setCom(""); };
 
   /* ── comentarios ── */
-  const enviarComentario = async (txt, padre) => {
+  /* El comentario se ve al instante (con sus fotos locales) mientras las imágenes suben. Si algo
+     falla, desaparece y el texto vuelve a la caja para no perder lo escrito. */
+  const enviarComentario = async (txt, padre, archivos = []) => {
     const t = txt.trim();
-    if (!t || !abierta) return false;
-    const { data, error } = await supabase.from("comentarios").insert({ tarea_id: abierta, padre_id: padre || null, autor: yo, txt: t }).select().single();
-    if (error) { avisar("No se pudo enviar el comentario."); return false; }
-    setComs((cs) => (cs.some((c) => c.id === data.id) ? cs : cs.concat([data])));
-    return true;
+    if ((!t && !archivos.length) || !abierta) return false;
+    const tarea = abierta;
+    const id = crypto.randomUUID();
+    const locales = archivos.map((a) => a.url);
+    setComs((cs) => cs.concat([{ id, tarea_id: tarea, padre_id: padre || null, autor: yo, txt: t, imagenes: [], locales, editado: false, creado: new Date().toISOString(), subiendo: archivos.length > 0 }]));
+    try {
+      const rutas = await Promise.all(archivos.map(async (a) => {
+        const archivo = await achicar(a.file);
+        const ext = (archivo.type.split("/")[1] || "jpg").replace("jpeg", "jpg");
+        const ruta = tarea + "/" + crypto.randomUUID() + "." + ext;
+        const { error } = await supabase.storage.from("adjuntos").upload(ruta, archivo, { contentType: archivo.type, upsert: false });
+        if (error) throw error;
+        return ruta;
+      }));
+      setUrls((u) => { const n = { ...u }; rutas.forEach((r, i) => { n[r] = locales[i]; }); return n; });
+      const { data, error } = await supabase.from("comentarios").insert({ id, tarea_id: tarea, padre_id: padre || null, autor: yo, txt: t, imagenes: rutas }).select().single();
+      if (error) throw error;
+      setComs((cs) => cs.map((c) => (c.id === id ? data : c)));
+      return true;
+    } catch {
+      setComs((cs) => cs.filter((c) => c.id !== id));
+      avisar(archivos.length ? "No se pudo subir la imagen. Prueba de nuevo." : "No se pudo enviar el comentario.");
+      return false;
+    }
   };
   const editarComentario = async (id, txt) => {
     setComs((cs) => cs.map((c) => (c.id === id ? { ...c, txt, editado: true } : c)));
@@ -268,6 +430,8 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
     if (error) { avisar("No se pudo editar."); cargar(); }
   };
   const borrarComentario = async (id) => {
+    const fotos = coms.filter((c) => c.id === id || c.padre_id === id).flatMap((c) => (c.autor === yo ? c.imagenes || [] : []));
+    if (fotos.length) supabase.storage.from("adjuntos").remove(fotos);
     setComs((cs) => cs.filter((c) => c.id !== id && c.padre_id !== id));
     const { error } = await supabase.from("comentarios").delete().eq("id", id);
     if (error) { avisar("No se pudo borrar."); cargar(); } else avisar("Comentario borrado");
@@ -322,8 +486,6 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
   const tA = abierta ? tareas.find((t) => t.id === abierta) : null;
   const nadaDeNada = deVista.length === 0;
   const hayVacio = !cargando && !grupos.length && !(nueva && nueva.grupo === "__top");
-  const mencion = /@([^\s@]*)$/.exec(com);
-  const sugerir = mencion ? claves.map((k) => P[k]).filter((p) => sinTildes(p.nombre).includes(sinTildes(mencion[1]))) : [];
   const abiertoPop = (tipo, id) => (pop && pop.target === id && pop.tipo === tipo ? "on" : "");
 
   /* ── piezas ── */
@@ -491,7 +653,7 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
         </div>
         <span className="psep" />
         <Opt onClick={() => { cambiarTema(); setPop(null); }}>{tema === "claro" ? "Tema oscuro" : "Tema claro"}</Opt>
-        <Opt cls="peligro" onClick={() => supabase.auth.signOut()}>Salir</Opt>
+        <Opt cls="peligro" onClick={salir}>Salir</Opt>
       </>);
     }
     if (pop.tipo === "fecha") {
@@ -558,10 +720,10 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
                 <textarea value={editDraft} onChange={(ev) => setEditDraft(ev.target.value)} autoFocus aria-label="Editar comentario" />
                 <div className="comp-barra"><span className="esp" />
                   <button type="button" className="btn-chico sec" onClick={() => setEdit(null)}>Cancelar</button>
-                  <button type="button" className="btn-chico pri" onClick={() => { const v = editDraft.trim(); if (v) editarComentario(c.id, v); setEdit(null); }}>Guardar</button>
+                  <button type="button" className="btn-chico pri" onClick={() => { const v = editDraft.trim(); if (v || (c.imagenes || []).length) editarComentario(c.id, v); setEdit(null); }}>Guardar</button>
                 </div>
               </div>
-            ) : <Texto txt={c.txt} P={P} />}
+            ) : <>{c.txt && <Texto txt={c.txt} P={P} />}<Fotos c={c} urls={urls} onVer={setVisor} /></>}
             <div className="com-acc">
               {!esHilo && <button type="button" className="responder" onClick={() => { setResp(c.id); setRespDraft(""); setEdit(null); }}><Svg tam={12} ancho={2}><path d="M9 14 4 9l5-5" /><path d="M4 9h10a6 6 0 0 1 6 6v4" /></Svg>Responder</button>}
               {mio && <>
@@ -571,19 +733,11 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
             </div>
             {!esHilo && c.hilo.length > 0 && <div className="hilo">{c.hilo.map((r) => comentario(r, true))}</div>}
             {!esHilo && resp === c.id && (
-              <div className="hilo"><div className="composer">
-                <textarea placeholder="Responde en el hilo · @ para nombrar" value={respDraft} autoFocus aria-label="Responder"
-                  onChange={(ev) => setRespDraft(ev.target.value)}
-                  onKeyDown={async (ev) => {
-                    if (ev.key === "Escape") setResp(null);
-                    if (ev.key === "Enter" && !ev.shiftKey) { ev.preventDefault(); if (await enviarComentario(respDraft, c.id)) { setResp(null); setRespDraft(""); } }
-                  }} />
-                <div className="comp-barra"><span className="esp" />
-                  <button type="button" className="btn-chico sec" onClick={() => { setResp(null); setRespDraft(""); }}>Cancelar</button>
-                  <button type="button" className="enviar" disabled={!respDraft.trim()} aria-label="Enviar respuesta"
-                    onClick={async () => { if (await enviarComentario(respDraft, c.id)) { setResp(null); setRespDraft(""); } }}><IcoEnviar /></button>
-                </div>
-              </div></div>
+              <div className="hilo">
+                <Composer P={P} claves={claves} placeholder="Responde en el hilo · @ para nombrar" autoFocus conCancelar
+                  onCancelar={() => setResp(null)}
+                  onEnviar={async (t, a) => { setResp(null); return enviarComentario(t, c.id, a); }} />
+              </div>
             )}
           </div>
         </div>
@@ -693,27 +847,8 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
         </div>
 
         <div className="det-pie">
-          <div className="composer">
-            {sugerir.length > 0 && (
-              <div className="sugerir">
-                {sugerir.map((p) => (
-                  <button key={p.clave} type="button" className="opt" onClick={() => setCom((c) => c.replace(/@([^\s@]*)$/, "@" + p.nombre + " "))}>
-                    <span className="cara" style={{ background: p.color }}>{p.iniciales}</span>{p.nombre}
-                  </button>
-                ))}
-              </div>
-            )}
-            <textarea placeholder="Escribe un comentario · @ para nombrar" value={com} aria-label="Escribir comentario"
-              onChange={(ev) => setCom(ev.target.value)}
-              onKeyDown={async (ev) => { if (ev.key === "Enter" && !ev.shiftKey) { ev.preventDefault(); if (await enviarComentario(com, null)) setCom(""); } }} />
-            <div className="comp-barra">
-              <button type="button" className="eico" onClick={() => setCom((c) => c + (c && !/\s$/.test(c) ? " @" : "@"))} aria-label="Nombrar a alguien">
-                <Svg ancho={1.8}><circle cx="12" cy="12" r="4" /><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8" /></Svg>
-              </button>
-              <span className="esp" />
-              <button type="button" className="enviar" disabled={!com.trim()} aria-label="Enviar comentario" onClick={async () => { if (await enviarComentario(com, null)) setCom(""); }}><IcoEnviar /></button>
-            </div>
-          </div>
+          <Composer key={tA.id} P={P} claves={claves} placeholder="Escribe un comentario · @ para nombrar"
+            onEnviar={(t, a) => enviarComentario(t, null, a)} />
         </div>
       </aside>
     </>);
@@ -733,12 +868,13 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
       if (e.key !== "Escape" || e.defaultPrevented) return;
       const t = e.target;
       const escribiendo = t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA");
+      if (visor) { setVisor(null); return; }
       if (pop) { setPop(null); return; }
       if (abierta && !escribiendo) { setAbierta(null); }
     };
     window.addEventListener("keydown", alTeclear);
     return () => window.removeEventListener("keydown", alTeclear);
-  }, [pop, abierta]);
+  }, [pop, abierta, visor]);
 
   /* La pestaña del navegador dice cuántas hay para hoy o atrasadas, como Blue OS. */
   const pendientesHoy = urgentes("todas");
@@ -776,7 +912,7 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
           </div>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", padding: "0 4px", alignItems: "center" }}>
             {botonTema}
-            <button type="button" className="mini salir" onClick={() => supabase.auth.signOut()}>Salir</button>
+            <button type="button" className="mini salir" onClick={salir}>Salir</button>
           </div>
         </div>
       </aside>
@@ -875,6 +1011,13 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
             const { error } = await supabase.from("tareas").delete().in("id", ids);
             if (error) { avisar("No se pudo borrar."); cargar(); } else avisar(ids.length + (ids.length === 1 ? " tarea borrada" : " tareas borradas"));
           }}><IcoTacho tam={13} />{loteBorrar ? "Borrar " + selIds.length : "Borrar"}</button>
+        </div>
+      )}
+
+      {visor && (
+        <div className="visor" role="dialog" aria-label="Imagen" onClick={() => setVisor(null)}>
+          <img src={visor} alt="" />
+          <button type="button" className="visor-x" aria-label="Cerrar imagen"><IcoX tam={18} /></button>
         </div>
       )}
 

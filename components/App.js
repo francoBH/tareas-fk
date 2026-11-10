@@ -5,27 +5,40 @@ import Tablero from "@/components/Tablero";
 
 /* La puerta: sin sesión pide el correo y manda el link; con sesión de alguien que no está
    en la lista de personas, lo dice; con sesión válida, dibuja el tablero. */
+/* ⚠️ LA RECARGA AL VOLVER A LA PESTAÑA (10 nov 2026): Supabase renueva la sesión cada vez que
+   la pestaña vuelve a estar a la vista y avisa con un objeto de sesión NUEVO. Antes eso volvía a
+   pedir quién soy, mostraba la pantalla de carga y armaba el tablero de cero (se perdía la tarea
+   abierta). Ahora lo que importa es el CORREO: si es el mismo, no se toca nada. */
+const leerCache = (k) => { try { return JSON.parse(localStorage.getItem(k) || "null"); } catch { return null; } };
+const guardarCache = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
+
 export default function App() {
-  const [sesion, setSesion] = useState(undefined);
+  const [email, setEmail] = useState(undefined);
   const [yo, setYo] = useState(undefined);
   const [tema, setTema] = useState("oscuro");
 
   useEffect(() => {
     try { const t = localStorage.getItem("tf-tema"); if (t) setTema(t); } catch {}
-    supabase.auth.getSession().then(({ data }) => setSesion(data.session ?? null));
-    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => setSesion(s ?? null));
+    const poner = (s) => setEmail(s?.user?.email ? s.user.email.toLowerCase() : null);
+    supabase.auth.getSession().then(({ data }) => poner(data.session));
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => poner(s));
     return () => sub.subscription.unsubscribe();
   }, []);
 
   useEffect(() => {
-    if (!sesion) { setYo(sesion === null ? null : undefined); return; }
-    setYo(undefined);
-    supabase.from("personas").select("*").then(({ data }) => {
-      const email = (sesion.user.email || "").toLowerCase();
+    if (!email) { setYo(email === null ? null : undefined); return; }
+    /* Arranca con lo guardado (abre al instante) y se pone al día por detrás. */
+    const c = leerCache("tf-yo");
+    if (c && c.email === email) setYo(c.valor);
+    supabase.from("personas").select("*").then(({ data, error }) => {
+      if (error) { if (!c || c.email !== email) setYo(false); return; }
       const p = (data || []).find((x) => x.email.toLowerCase() === email);
-      setYo(p ? { personas: data, clave: p.clave } : false);
+      const valor = p ? { personas: data, clave: p.clave } : false;
+      setYo((prev) => (JSON.stringify(prev) === JSON.stringify(valor) ? prev : valor));
+      if (valor) guardarCache("tf-yo", { email, valor });
     });
-  }, [sesion]);
+  }, [email]);
+  const sesion = email ? { user: { email } } : email;
 
   const cambiarTema = () => {
     const t = tema === "claro" ? "oscuro" : "claro";
@@ -40,8 +53,8 @@ export default function App() {
     return (
       <div className={clase}><div className="entrar"><div className="entrar-caja">
         <h1>Este correo no tiene acceso</h1>
-        <p>Entraste con {sesion.user.email}. Este tablero es solo para Franco y Katherine.</p>
-        <button type="button" className="entrar-btn" onClick={() => supabase.auth.signOut()}>Salir</button>
+        <p>Entraste con {sesion.user.email}. Este tablero es solo para el equipo de Franco.</p>
+        <button type="button" className="entrar-btn" onClick={() => { try { localStorage.removeItem("tf-yo"); localStorage.removeItem("tf-datos"); } catch {} supabase.auth.signOut(); }}>Salir</button>
       </div></div></div>
     );
   }
