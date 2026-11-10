@@ -4,6 +4,8 @@ import { supabase } from "@/lib/supabase";
 import {
   atajos as atajosDe, calendario, cercania, dias, dow, fechaCreacion, fechaLarga, fechaRel, hace, hoyIso, iso, mas, mesKey, sinTildes, tituloMes,
 } from "@/lib/fechas";
+import { IconoEstado, Bandera, Svg, IcoCal, IcoMas, IcoPuntos, IcoTacho, IcoLapiz, IcoRama, IcoTilde, IcoEnviar, Caret, IcoX, Caras, Texto, achicar, Fotos, Composer } from "@/components/piezas";
+import Bandeja from "@/components/Bandeja";
 
 /* ════════════════════════════════════════════════════════════════════════════════
    EL TABLERO — copia del de Blue OS («Todas» + «Mis tareas»), con Tipo en vez de
@@ -34,163 +36,6 @@ const priDe = (id) => PRIORIDADES.find((p) => p.id === id) || null;
 const tipDe = (id) => TIPOS.find((x) => x.id === id) || null;
 const parar = (e) => { if (e && e.stopPropagation) e.stopPropagation(); };
 
-/* ── íconos ── */
-function IconoEstado({ estado, tam = 14 }) {
-  const col = "var(--st-" + estado + ")";
-  if (estado === "idea") {
-    return (
-      <svg width={tam + 1} height={tam + 1} viewBox="0 0 24 24" fill="none" stroke={col} strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <path d="M9 17.2h6" /><path d="M10 20.2h4" />
-        <path d="M12 2.8a6.2 6.2 0 0 0-3.6 11.25c.5.36.8.94.8 1.55h5.6c0-.61.3-1.19.8-1.55A6.2 6.2 0 0 0 12 2.8Z" />
-      </svg>
-    );
-  }
-  const act = estado === "prog" || estado === "rev" || estado === "corr";
-  const comp = estado === "comp";
-  return (
-    <svg width={tam} height={tam} viewBox="0 0 14 14" aria-hidden="true" style={{ flex: "none" }}>
-      <circle cx="7" cy="7" r="5.6" fill={comp ? col : "none"} stroke={col} strokeWidth="1.5" strokeDasharray={estado === "sin" ? "2.2 1.8" : undefined} />
-      {act && <circle cx="7" cy="7" r="2.7" fill={col} />}
-      {comp && <path d="m4.6 7 1.7 1.7 3.2-3.3" fill="none" stroke="var(--bg-2)" strokeWidth="1.6" />}
-    </svg>
-  );
-}
-function Bandera({ prio, tam = 13 }) {
-  const c = prio ? "var(--p-" + prio + ")" : "var(--t4)";
-  return <svg width={tam} height={tam} viewBox="0 0 24 24" aria-hidden="true" style={{ flex: "none" }}><path d="M5 21V4h11l-1.8 4L16 12H5" fill={prio ? c : "none"} stroke={c} strokeWidth="1.6" strokeLinejoin="round" /></svg>;
-}
-const Svg = ({ children, tam = 15, ancho = 1.8 }) => (
-  <svg width={tam} height={tam} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={ancho} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{children}</svg>
-);
-const IcoCal = ({ tam = 13 }) => <Svg tam={tam}><rect x="3.5" y="5" width="17" height="15.5" rx="2.5" /><path d="M3.5 10h17" /><path d="M8 3v4" /><path d="M16 3v4" /></Svg>;
-const IcoMas = ({ tam = 12 }) => <Svg tam={tam} ancho={2}><path d="M12 5v14" /><path d="M5 12h14" /></Svg>;
-const IcoPuntos = () => <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.7" /><circle cx="12" cy="12" r="1.7" /><circle cx="19" cy="12" r="1.7" /></svg>;
-const IcoTacho = ({ tam = 12 }) => <Svg tam={tam} ancho={2}><path d="M4 7h16" /><path d="M9 7V4.5h6V7" /><path d="M6 7l1 13h10l1-13" /></Svg>;
-const IcoLapiz = ({ tam = 12 }) => <Svg tam={tam} ancho={2}><path d="M4.5 19.5h3.8L19 8.8a2.2 2.2 0 0 0-3.1-3.1L5.2 16.4l-.7 3.1Z" /><path d="m14.2 7.4 3.1 3.1" /></Svg>;
-const IcoRama = ({ tam = 11 }) => <Svg tam={tam} ancho={2.1}><circle cx="6.5" cy="5.5" r="2.3" /><path d="M6.5 7.8V12a4.5 4.5 0 0 0 4.5 4.5h4.7" /><circle cx="18" cy="16.5" r="2.3" /></Svg>;
-const IcoTilde = ({ tam = 14, ancho = 2.4 }) => <Svg tam={tam} ancho={ancho}><path d="m5 12.5 4.5 4.5L19 7.5" /></Svg>;
-const IcoEnviar = () => <Svg tam={14} ancho={2}><path d="M5 12h13" /><path d="m13 6 6 6-6 6" /></Svg>;
-const Caret = ({ abierto }) => <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true" style={{ transform: abierto ? "none" : "rotate(-90deg)" }}><path d="M1.5 3h7L5 7.5Z" fill="currentColor" /></svg>;
-const IcoX = ({ tam = 15 }) => <Svg tam={tam} ancho={2}><path d="M6 6l12 12" /><path d="M18 6 6 18" /></Svg>;
-
-function Caras({ ids, P, grande }) {
-  return (
-    <span className="caras">
-      {ids.filter((id) => P[id]).map((id) => (
-        <span key={id} className={"cara" + (grande ? " g" : "")} style={{ background: P[id].color }} title={P[id].nombre}>{P[id].iniciales}</span>
-      ))}
-    </span>
-  );
-}
-
-/* Separa el texto en partes y marca las menciones a una persona. */
-function Texto({ txt, P }) {
-  const nombres = Object.values(P).map((p) => "@" + p.nombre);
-  if (!nombres.length) return <span className="com-txt">{txt}</span>;
-  const re = new RegExp("(" + nombres.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|") + ")", "g");
-  return <span className="com-txt">{String(txt).split(re).filter(Boolean).map((p, i) => <span key={i} className={nombres.includes(p) ? "mencion" : ""}>{p}</span>)}</span>;
-}
-
-/* Achica las fotos grandes antes de subirlas (una foto de celular pesa 3–6 MB; así queda en
-   unos cientos de KB y sube rápido). Los GIF y las imágenes chicas van tal cual. */
-async function achicar(file) {
-  if (file.type === "image/gif" || file.size < 400 * 1024) return file;
-  try {
-    const bmp = await createImageBitmap(file);
-    const lado = 1920, k = Math.min(1, lado / Math.max(bmp.width, bmp.height));
-    const c = document.createElement("canvas");
-    c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
-    c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
-    const blob = await new Promise((r) => c.toBlob(r, "image/jpeg", 0.85));
-    return blob ? new File([blob], "foto.jpg", { type: "image/jpeg" }) : file;
-  } catch { return file; }
-}
-
-/* Las fotos de un comentario: miniaturas que se abren en grande al tocarlas. */
-function Fotos({ c, urls, onVer }) {
-  const lista = (c.imagenes || []).length ? c.imagenes.map((p, i) => urls[p] || (c.locales || [])[i]) : (c.locales || []);
-  if (!lista.length) return null;
-  return (
-    <div className="fotos">
-      {lista.map((u, i) => (
-        <button key={i} type="button" className={"foto" + (c.subiendo ? " subiendo" : "")} onClick={() => u && onVer(u)} aria-label="Ver imagen">
-          {u ? <img src={u} alt="" loading="lazy" /> : <span className="foto-hueco" />}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-/* La caja de escribir, la misma para el comentario principal y para responder en el hilo:
-   texto, @ para nombrar, y fotos con el clip, pegando (⌘V) o arrastrando. */
-function Composer({ P, claves, placeholder, autoFocus, onEnviar, onCancelar, conCancelar }) {
-  const [txt, setTxt] = useState("");
-  const [archivos, setArchivos] = useState([]);
-  const [arrastrando, setArrastrando] = useState(false);
-  const inputRef = useRef(null);
-  const sumar = (files) => {
-    const imgs = [...files].filter((f) => f.type.startsWith("image/"));
-    if (!imgs.length) return;
-    setArchivos((a) => a.concat(imgs.slice(0, 8 - a.length).map((f) => ({ id: crypto.randomUUID(), file: f, url: URL.createObjectURL(f) }))));
-  };
-  const enviar = async () => {
-    if (!txt.trim() && !archivos.length) return;
-    const t = txt, a = archivos;
-    setTxt(""); setArchivos([]);
-    const ok = await onEnviar(t, a);
-    if (!ok) { setTxt(t); setArchivos(a); }
-  };
-  const m = /@([^\s@]*)$/.exec(txt);
-  const sugerir = m ? claves.map((k) => P[k]).filter((p) => sinTildes(p.nombre).includes(sinTildes(m[1]))) : [];
-  return (
-    <div className={"composer" + (arrastrando ? " arrastrando" : "")}
-      onDragOver={(e) => { if ([...e.dataTransfer.types].includes("Files")) { e.preventDefault(); setArrastrando(true); } }}
-      onDragLeave={() => setArrastrando(false)}
-      onDrop={(e) => { e.preventDefault(); setArrastrando(false); sumar(e.dataTransfer.files); }}>
-      {sugerir.length > 0 && (
-        <div className="sugerir">
-          {sugerir.map((p) => (
-            <button key={p.clave} type="button" className="opt" onClick={() => setTxt((c) => c.replace(/@([^\s@]*)$/, "@" + p.nombre + " "))}>
-              <span className="cara" style={{ background: p.color }}>{p.iniciales}</span>{p.nombre}
-            </button>
-          ))}
-        </div>
-      )}
-      {archivos.length > 0 && (
-        <div className="fotos fotos-borrador">
-          {archivos.map((a) => (
-            <span key={a.id} className="foto">
-              <img src={a.url} alt="" />
-              <button type="button" className="foto-x" aria-label="Quitar imagen" onClick={() => setArchivos((xs) => xs.filter((x) => x.id !== a.id))}><IcoX tam={11} /></button>
-            </span>
-          ))}
-        </div>
-      )}
-      <textarea placeholder={placeholder} value={txt} autoFocus={autoFocus} aria-label={placeholder}
-        onChange={(e) => setTxt(e.target.value)}
-        onPaste={(e) => { const f = [...(e.clipboardData?.files || [])]; if (f.length) { e.preventDefault(); sumar(f); } }}
-        onKeyDown={(e) => {
-          if (e.key === "Escape" && onCancelar) { e.preventDefault(); onCancelar(); }
-          if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); enviar(); }
-        }} />
-      <div className="comp-barra">
-        <button type="button" className="eico" onClick={() => inputRef.current?.click()} aria-label="Adjuntar imagen" title="Adjuntar imagen">
-          <Svg ancho={1.8}><path d="m20.5 11.5-8.3 8.3a5.2 5.2 0 0 1-7.4-7.4l8.6-8.6a3.5 3.5 0 0 1 4.9 4.9l-8.4 8.4a1.7 1.7 0 0 1-2.5-2.5l7.8-7.8" /></Svg>
-        </button>
-        <input ref={inputRef} type="file" accept="image/*" multiple hidden onChange={(e) => { sumar(e.target.files); e.target.value = ""; }} />
-        <button type="button" className="eico" onClick={() => setTxt((c) => c + (c && !/\s$/.test(c) ? " @" : "@"))} aria-label="Nombrar a alguien">
-          <Svg ancho={1.8}><circle cx="12" cy="12" r="4" /><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8" /></Svg>
-        </button>
-        <span className="esp" />
-        {conCancelar && <button type="button" className="btn-chico sec" onClick={onCancelar}>Cancelar</button>}
-        <button type="button" className="enviar" disabled={!txt.trim() && !archivos.length} aria-label="Enviar" onClick={enviar}><IcoEnviar /></button>
-      </div>
-    </div>
-  );
-}
-
-/* ════════════════════════════════════════════════════════════════════════════ */
-
 export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
   const P = useMemo(() => Object.fromEntries(personasLista.map((p) => [p.clave, p])), [personasLista]);
   const claves = useMemo(() => personasLista.map((p) => p.clave), [personasLista]);
@@ -201,6 +46,8 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
   const cache = useMemo(() => { try { return JSON.parse(localStorage.getItem("tf-datos") || "null"); } catch { return null; } }, []);
   const [filas, setFilas] = useState(() => cache?.filas || []);
   const [coms, setComs] = useState(() => cache?.coms || []);
+  /* Lo que YO ya leí de la bandeja (ids de comentarios). */
+  const [leidas, setLeidas] = useState(() => new Set(cache?.leidas || []));
   const [cargando, setCargando] = useState(() => !cache);
   const [urls, setUrls] = useState({});
   const [visor, setVisor] = useState(null);
@@ -242,14 +89,16 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
 
   /* ── lectura y tiempo real ── */
   const cargar = useCallback(async () => {
-    const [a, b] = await Promise.all([
+    const [a, b, l] = await Promise.all([
       supabase.from("tareas").select("*").order("creada", { ascending: true }),
       supabase.from("comentarios").select("*").order("creado", { ascending: true }),
+      supabase.from("lecturas").select("comentario_id"),
     ]);
     if (a.error || b.error) { setErrorCarga(true); setCargando(false); return; }
     setErrorCarga(false);
     setFilas(a.data || []);
     setComs(b.data || []);
+    if (!l.error) setLeidas(new Set((l.data || []).map((x) => x.comentario_id)));
     setCargando(false);
   }, []);
 
@@ -270,6 +119,12 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
     const canal = supabase.channel("tablero")
       .on("postgres_changes", { event: "*", schema: "public", table: "tareas" }, aplicarCambio(setFilas))
       .on("postgres_changes", { event: "*", schema: "public", table: "comentarios" }, aplicarCambio(setComs))
+      /* Lo leído en otro dispositivo (la compu y el celular) se refleja solo. */
+      .on("postgres_changes", { event: "*", schema: "public", table: "lecturas" }, (p) => {
+        const id = p.eventType === "DELETE" ? p.old?.comentario_id : p.new?.comentario_id;
+        if (!id) return;
+        setLeidas((s) => { if ((p.eventType !== "DELETE") === s.has(id)) return s; const n = new Set(s); if (p.eventType === "DELETE") n.delete(id); else n.add(id); return n; });
+      })
       .subscribe();
     const reloj = setInterval(() => setHoy(hoyIso()), 60000);
     /* Al volver a la pestaña se pone al día EN SILENCIO (sin pantalla de carga) y solo si estuvo
@@ -287,10 +142,10 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
   /* La copia del navegador se guarda sola, un rato después del último cambio. */
   useEffect(() => {
     const t = setTimeout(() => {
-      try { localStorage.setItem("tf-datos", JSON.stringify({ filas: filas.filter((f) => !String(f.id).startsWith("tmp-")), coms: coms.filter((c) => !String(c.id).startsWith("tmp-")) })); } catch {}
+      try { localStorage.setItem("tf-datos", JSON.stringify({ filas: filas.filter((f) => !String(f.id).startsWith("tmp-")), coms: coms.filter((c) => !String(c.id).startsWith("tmp-") && !c.subiendo), leidas: [...leidas] })); } catch {}
     }, 500);
     return () => clearTimeout(t);
-  }, [filas, coms]);
+  }, [filas, coms, leidas]);
 
   /* Las imágenes son privadas: se piden links firmados (valen 7 días) para las que falten. */
   useEffect(() => {
@@ -392,15 +247,16 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
     setFilas((fs) => fs.map((f) => (f.id === id ? data : f)));
   };
 
+  const irA = (v) => { setVista(v); setSel({}); setNueva(null); setPop(null); };
   const abrirTarea = (id) => { setAbierta(id); setPop(null); setEditTit(false); setEditDesc(false); setAgregandoSub(false); setResp(null); setEdit(null); setCom(""); };
 
   /* ── comentarios ── */
   /* El comentario se ve al instante (con sus fotos locales) mientras las imágenes suben. Si algo
      falla, desaparece y el texto vuelve a la caja para no perder lo escrito. */
-  const enviarComentario = async (txt, padre, archivos = []) => {
+  const enviarComentario = async (txt, padre, archivos = [], tareaId) => {
     const t = txt.trim();
-    if ((!t && !archivos.length) || !abierta) return false;
-    const tarea = abierta;
+    const tarea = tareaId || abierta;
+    if ((!t && !archivos.length) || !tarea) return false;
     const id = crypto.randomUUID();
     const locales = archivos.map((a) => a.url);
     setComs((cs) => cs.concat([{ id, tarea_id: tarea, padre_id: padre || null, autor: yo, txt: t, imagenes: [], locales, editado: false, creado: new Date().toISOString(), subiendo: archivos.length > 0 }]));
@@ -436,6 +292,45 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
     const { error } = await supabase.from("comentarios").delete().eq("id", id);
     if (error) { avisar("No se pudo borrar."); cargar(); } else avisar("Comentario borrado");
   };
+
+  /* ── la bandeja: qué comentarios de los demás me tocan, y si ya los leí ── */
+  const marcar = useCallback(async (ids, leer) => {
+    if (!ids.length) return;
+    setLeidas((s) => { const n = new Set(s); ids.forEach((id) => (leer ? n.add(id) : n.delete(id))); return n; });
+    const { error } = leer
+      ? await supabase.from("lecturas").upsert(ids.map((id) => ({ persona: yo, comentario_id: id })), { onConflict: "persona,comentario_id", ignoreDuplicates: true })
+      : await supabase.from("lecturas").delete().eq("persona", yo).in("comentario_id", ids);
+    if (error) { avisar("No se pudo marcar. Vuelve a intentar."); cargar(); }
+  }, [yo, avisar, cargar]);
+  /* Me toca un comentario de otra persona si: me nombró, respondió algo mío, respondió en un
+     hilo donde yo escribí, o es de una tarea donde soy responsable, la sigo o la creé. */
+  const itemsBandeja = useMemo(() => {
+    const porId = new Map(coms.map((c) => [c.id, c]));
+    const tPorId = new Map(filas.map((f) => [f.id, f]));
+    const miNombre = yoP ? "@" + yoP.nombre : null;
+    const hilosMios = new Set(coms.filter((c) => c.autor === yo).map((c) => c.padre_id || c.id));
+    const out = [];
+    coms.forEach((c) => {
+      if (c.autor === yo || c.subiendo) return;
+      const t = tPorId.get(c.tarea_id);
+      if (!t) return;
+      const padre = c.padre_id ? porId.get(c.padre_id) : null;
+      let verbo = null;
+      if (miNombre && (c.txt || "").includes(miNombre)) verbo = "te nombró";
+      else if (padre && padre.autor === yo) verbo = "respondió tu comentario";
+      else if (c.padre_id && hilosMios.has(c.padre_id)) verbo = "respondió en el hilo";
+      else if ((t.resp || []).includes(yo) || (t.seguidores || []).includes(yo) || t.creado_por === yo) verbo = c.padre_id ? "respondió en el hilo" : "comentó";
+      if (verbo) out.push({ c, t, verbo });
+    });
+    return out;
+  }, [coms, filas, yo, yoP]);
+  const sinLeerBandeja = itemsBandeja.filter((x) => !leidas.has(x.c.id)).length;
+  /* Abrir la tarea y ver su hilo cuenta como leer sus avisos (como ClickUp). */
+  useEffect(() => {
+    if (!abierta) return;
+    const ids = itemsBandeja.filter((x) => x.t.id === abierta && !leidas.has(x.c.id)).map((x) => x.c.id);
+    if (ids.length) marcar(ids, true);
+  }, [abierta, itemsBandeja, leidas, marcar]);
 
   /* ══ armado ══ */
   const q = sinTildes(busca.trim());
@@ -895,10 +790,16 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
     <div className={"tf " + (tema === "claro" ? "claro" : "")} ref={rootRef}>
       <aside className="side">
         <div className="marca"><span className="marca-logo">FK</span><div><b>TAREAS</b><span>{nombresEquipo}</span></div></div>
+        <button type="button" className={"nav " + (vista === "bandeja" ? "on" : "")} onClick={() => irA("bandeja")}>
+          <Svg tam={16} ancho={1.7}><path d="M22 12h-6l-2 3h-4l-2-3H2" /><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" /></Svg>
+          <span>Bandeja</span>
+          {sinLeerBandeja > 0 && <span className="cnt" title="Sin leer">{sinLeerBandeja}</span>}
+        </button>
+        <div className="side-linea" />
         {navs.map((n) => {
           const c = urgentes(n.id);
           return (
-            <button key={n.id} type="button" className={"nav " + (vista === n.id ? "on" : "")} onClick={() => { setVista(n.id); setSel({}); setNueva(null); setPop(null); }}>
+            <button key={n.id} type="button" className={"nav " + (vista === n.id ? "on" : "")} onClick={() => irA(n.id)}>
               {n.id === "todas" ? <Svg tam={16} ancho={1.7}><path d="M9 6h11" /><path d="M9 12h11" /><path d="M9 18h11" /><path d="M4.5 6h.01" /><path d="M4.5 12h.01" /><path d="M4.5 18h.01" /></Svg> : <span className="cuadro" style={{ background: n.color }} />}
               <span>{n.label}</span>
               {c > 0 && <span className="cnt" title="Hoy y atrasadas">{c}</span>}
@@ -919,10 +820,14 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
 
       <section className="main">
         <div className="tabs-movil">
+          <button type="button" className={"nav nav-bandeja " + (vista === "bandeja" ? "on" : "")} onClick={() => irA("bandeja")} aria-label="Bandeja de entrada" title="Bandeja de entrada">
+            <Svg tam={16} ancho={1.8}><path d="M22 12h-6l-2 3h-4l-2-3H2" /><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" /></Svg>
+            {sinLeerBandeja > 0 && <span className="cnt">{sinLeerBandeja}</span>}
+          </button>
           {navs.map((n) => {
             const c = urgentes(n.id);
             return (
-              <button key={n.id} type="button" className={"nav " + (vista === n.id ? "on" : "")} onClick={() => { setVista(n.id); setSel({}); setNueva(null); setPop(null); }}>
+              <button key={n.id} type="button" className={"nav " + (vista === n.id ? "on" : "")} onClick={() => irA(n.id)}>
                 <span>{n.label}</span>{c > 0 && <span className="cnt">{c}</span>}
               </button>
             );
@@ -932,6 +837,17 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
           </button>
         </div>
 
+        {vista === "bandeja" ? (<>
+          <div className="head">
+            <h1>Bandeja de entrada</h1>
+            <span className="sub">{sinLeerBandeja ? sinLeerBandeja + " sin leer" : "Al día"}</span>
+          </div>
+          <div className="bdj-scroll">
+            <Bandeja items={itemsBandeja} coms={coms} P={P} claves={claves} yo={yo} leidas={leidas} marcar={marcar}
+              enviar={(tareaId, txt, padre, archivos) => enviarComentario(txt, padre, archivos, tareaId)}
+              abrirTarea={abrirTarea} urls={urls} onVer={setVisor} tipDe={tipDe} ocupado={!!(abierta || visor || pop)} avisar={avisar} />
+          </div>
+        </>) : (<>
         <div className="head">
           {vistaTipo && <span className="cuadro" style={{ width: 18, height: 18, borderRadius: 5, background: vistaTipo.color }} />}
           <h1>{vistaTipo ? vistaTipo.label : "Todas"}</h1>
@@ -984,6 +900,7 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
             })}
           </div>
         </div>
+        </>)}
       </section>
 
       {panel()}
