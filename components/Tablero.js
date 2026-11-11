@@ -6,6 +6,7 @@ import {
 } from "@/lib/fechas";
 import { IconoEstado, Bandera, Svg, IcoCal, IcoMas, IcoPuntos, IcoTacho, IcoLapiz, IcoRama, IcoTilde, IcoEnviar, Caret, IcoX, Caras, Texto, achicar, Fotos, Composer } from "@/components/piezas";
 import Bandeja from "@/components/Bandeja";
+import Resumen, { minutosDe } from "@/components/Resumen";
 
 /* ════════════════════════════════════════════════════════════════════════════════
    EL TABLERO — copia del de Blue OS («Todas» + «Mis tareas»), con Tipo en vez de
@@ -30,6 +31,7 @@ const TIPOS = [
   { id: "pro", label: "Profesional", largo: "Profesional · BlueHackers", color: "var(--pro)", ink: "var(--pro-ink)" },
   { id: "per", label: "Personal", largo: "Personal · Franco", color: "var(--per)", ink: "var(--per-ink)" },
 ];
+const TIEMPOS = [[15, "15 min"], [30, "30 min"], [45, "45 min"], [60, "1 h"], [120, "2 h"], [240, "4 h"], [480, "1 día"]];
 const RANGO_PRIO = { urgente: 0, alta: 1, media: 2, baja: 3 };
 const estDe = (id) => ESTADOS.find((e) => e.id === id) || ESTADOS[1];
 const priDe = (id) => PRIORIDADES.find((p) => p.id === id) || null;
@@ -484,6 +486,14 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
         <Opt onClick={() => { aplicar(tg, { prio: null }); cerrarPop(); }}><Bandera prio={null} tam={14} /><span style={{ color: "var(--t3)" }}>Quitar prioridad</span></Opt>
       </>);
     }
+    if (pop.tipo === "tiempo") {
+      const actual = valorDe(tg, "minutos");
+      return (<>
+        {TIEMPOS.map(([m, txt]) => <Opt key={m} on={actual === m} onClick={() => { aplicar(tg, { minutos: m }); cerrarPop(); }}>{txt}</Opt>)}
+        <span className="psep" />
+        <Opt onClick={() => { aplicar(tg, { minutos: null }); cerrarPop(); }}><span style={{ color: "var(--t3)" }}>Estimar por prioridad</span></Opt>
+      </>);
+    }
     if (pop.tipo === "tipo") {
       const actual = valorDe(tg, "tipo");
       return TIPOS.map((x) => <Opt key={x.id} on={actual === x.id && tg !== "lote"} onClick={() => { aplicar(tg, { tipo: x.id }); cerrarPop(); }}><span className="cuadro" style={{ background: x.color }} />{x.largo}</Opt>);
@@ -674,6 +684,10 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
             <button type="button" className="dato-btn" onClick={(ev) => abrirPop(ev, "resp", tA.id, 230, 130)} aria-label="Responsables">
               {tA.resp.length ? <Caras ids={tA.resp} P={P} grande /> : <span className="falta-chip">Falta responsable</span>}
             </button>
+            <button type="button" className="dato-btn" onClick={(ev) => abrirPop(ev, "tiempo", tA.id, 200, 300)} title="Cuánto tiempo le lleva a una persona. Se usa para estimar el tiempo liberado a Franco.">
+              <Svg tam={14} ancho={1.8}><circle cx="12" cy="12" r="8.5" /><path d="M12 7.5V12l3 2" /></Svg>
+              {tA.minutos ? <span>{TIEMPOS.find((x) => x[0] === tA.minutos)?.[1] || tA.minutos + " min"}</span> : <span style={{ color: "var(--t3)" }}>~{TIEMPOS.find((x) => x[0] === minutosDe(tA))?.[1] || minutosDe(tA) + " min"}</span>}
+            </button>
           </div>
           <div className="chips">
             <button type="button" className={"dato-btn " + (venc ? "venc" : "")} onClick={(ev) => abrirPop(ev, "fecha", tA.id, 470, 330)}>
@@ -795,6 +809,10 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
           <span>Bandeja</span>
           {sinLeerBandeja > 0 && <span className="cnt" title="Sin leer">{sinLeerBandeja}</span>}
         </button>
+        <button type="button" className={"nav " + (vista === "resumen" ? "on" : "")} onClick={() => irA("resumen")}>
+          <Svg tam={16} ancho={1.7}><path d="M3 3v18h18" /><path d="M7 15l4-4 3 3 6-6" /></Svg>
+          <span>Resumen</span>
+        </button>
         <div className="side-linea" />
         {navs.map((n) => {
           const c = urgentes(n.id);
@@ -824,6 +842,9 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
             <Svg tam={16} ancho={1.8}><path d="M22 12h-6l-2 3h-4l-2-3H2" /><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" /></Svg>
             {sinLeerBandeja > 0 && <span className="cnt">{sinLeerBandeja}</span>}
           </button>
+          <button type="button" className={"nav nav-bandeja " + (vista === "resumen" ? "on" : "")} onClick={() => irA("resumen")} aria-label="Resumen" title="Resumen">
+            <Svg tam={16} ancho={1.7}><path d="M3 3v18h18" /><path d="M7 15l4-4 3 3 6-6" /></Svg>
+          </button>
           {navs.map((n) => {
             const c = urgentes(n.id);
             return (
@@ -837,7 +858,14 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
           </button>
         </div>
 
-        {vista === "bandeja" ? (<>
+        {vista === "resumen" ? (<>
+          <div className="head">
+            <h1>Resumen</h1>
+          </div>
+          <div className="bdj-scroll">
+            <Resumen tareas={tareas} P={P} claves={claves.filter((k) => P[k]?.rol !== "Solo prueba")} abrirTarea={abrirTarea} tipDe={tipDe} />
+          </div>
+        </>) : vista === "bandeja" ? (<>
           <div className="head">
             <h1>Bandeja de entrada</h1>
             <span className="sub">{sinLeerBandeja ? sinLeerBandeja + " sin leer" : "Al día"}</span>
