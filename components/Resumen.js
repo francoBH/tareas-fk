@@ -86,6 +86,37 @@ function Kpi({ etiqueta, valor, extra, ayuda, antes, mejorSiSube = true, onClick
   );
 }
 
+/* Cada vuelta completada de una recurrente cuenta como una tarea completada más, con la fecha
+   que tenía esa vuelta (la recurrente en sí nunca queda «Completada»). Lo usan Resumen e Inicio. */
+export function armarBase(tareas, vueltas = []) {
+  const porId = new Map(tareas.map((t) => [t.id, t]));
+  const deVueltas = vueltas.map((v) => {
+    const t = porId.get(v.tarea_id);
+    if (!t) return null;
+    return { ...t, id: "v-" + v.id, tareaId: t.id, estado: "comp", resp: v.resp && v.resp.length ? v.resp : t.resp, completada: v.completada,
+      fecha: v.vencia, fecha_original: v.vencia, creada: null, iniciada: v.iniciada, subs: [] };
+  }).filter(Boolean);
+  return tareas.concat(deVueltas);
+}
+
+/* Todas las cuentas de un rango [d, h], en una sola función: el período anterior, el Resumen y el
+   Inicio se calculan igual. */
+export function medirRango(base, d, h, hoy) {
+  const enRango = (s) => s && s >= d && s <= h;
+  const completadas = base.filter((t) => t.estado === "comp" && enRango(diaLocal(t.completada)));
+  const creadas = base.filter((t) => enRango(diaLocal(t.creada)));
+  /* Lo que vence HOY y sigue abierto todavía está a tiempo: no cuenta hasta mañana. */
+  const vencian = base.filter((t) => enRango(t.fecha) && (t.fecha < hoy || (t.fecha === hoy && t.estado === "comp")));
+  const cumplidas = vencian.filter((t) => t.estado === "comp" && diaLocal(t.completada) <= t.fecha);
+  const conFecha = completadas.filter((t) => t.fecha_original || t.fecha);
+  const aTiempo = conFecha.filter((t) => diaLocal(t.completada) <= (t.fecha_original || t.fecha));
+  const ciclo = mediana(completadas.filter((t) => t.creada).map((t) => diasEntre(t.creada, t.completada)));
+  const trabajo = mediana(completadas.filter((t) => t.iniciada).map((t) => diasEntre(t.iniciada, t.completada)));
+  const delegadas = completadas.filter((t) => !t.resp.includes("F"));
+  const minLiberados = delegadas.reduce((s, t) => s + minutosDe(t), 0);
+  return { completadas, creadas, vencian, cumplidas, conFecha, aTiempo, ciclo, trabajo, delegadas, minLiberados };
+}
+
 export default function Resumen({ tareas, vueltas = [], P, claves, abrirTarea, tipDe }) {
   const hoy = hoyIso();
   const [preset, setPreset] = useState("30");
@@ -100,35 +131,11 @@ export default function Resumen({ tareas, vueltas = [], P, claves, abrirTarea, t
 
   /* Cada vuelta completada de una recurrente cuenta como una tarea completada más, con la
      fecha que tenía esa vuelta (la recurrente en sí nunca queda «Completada»). */
-  const base = useMemo(() => {
-    const porId = new Map(tareas.map((t) => [t.id, t]));
-    const deVueltas = vueltas.map((v) => {
-      const t = porId.get(v.tarea_id);
-      if (!t) return null;
-      return { ...t, id: "v-" + v.id, tareaId: t.id, estado: "comp", resp: v.resp && v.resp.length ? v.resp : t.resp, completada: v.completada,
-        fecha: v.vencia, fecha_original: v.vencia, creada: null, iniciada: v.iniciada, subs: [] };
-    }).filter(Boolean);
-    return tareas.concat(deVueltas).filter((t) => !tipo || t.tipo === tipo);
-  }, [tareas, vueltas, tipo]);
-
-  /* Todas las cuentas de un rango, en una sola función: así el período anterior se calcula igual. */
-  const medir = (d, h) => {
-    const enRango = (s) => s && s >= d && s <= h;
-    const completadas = base.filter((t) => t.estado === "comp" && enRango(diaLocal(t.completada)));
-    const creadas = base.filter((t) => enRango(diaLocal(t.creada)));
-    /* Lo que vence HOY y sigue abierto todavía está a tiempo: no cuenta hasta mañana. */
-    const vencian = base.filter((t) => enRango(t.fecha) && (t.fecha < hoy || (t.fecha === hoy && t.estado === "comp")));
-    const cumplidas = vencian.filter((t) => t.estado === "comp" && diaLocal(t.completada) <= t.fecha);
-    const conFecha = completadas.filter((t) => t.fecha_original || t.fecha);
-    const aTiempo = conFecha.filter((t) => diaLocal(t.completada) <= (t.fecha_original || t.fecha));
-    const ciclo = mediana(completadas.filter((t) => t.creada).map((t) => diasEntre(t.creada, t.completada)));
-    const trabajo = mediana(completadas.filter((t) => t.iniciada).map((t) => diasEntre(t.iniciada, t.completada)));
-    const delegadas = completadas.filter((t) => !t.resp.includes("F"));
-    const minLiberados = delegadas.reduce((s, t) => s + minutosDe(t), 0);
-    return { completadas, creadas, vencian, cumplidas, conFecha, aTiempo, ciclo, trabajo, delegadas, minLiberados };
-  };
+  const base = useMemo(() => armarBase(tareas, vueltas).filter((t) => !tipo || t.tipo === tipo), [tareas, vueltas, tipo]);
+  const medir = (d, h) => medirRango(base, d, h, hoy);
   const m = useMemo(() => medir(desde, hasta), [base, desde, hasta, hoy]); // eslint-disable-line react-hooks/exhaustive-deps
   const a = useMemo(() => medir(desdeA, hastaA), [base, desdeA, hastaA, hoy]); // eslint-disable-line react-hooks/exhaustive-deps
+  /* (las cuentas viven en medirRango, que también usa el Inicio) */
 
   /* Lo de hoy, sin rango: la foto del tablero. */
   const abiertas = base.filter((t) => t.estado !== "comp");

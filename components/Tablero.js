@@ -7,7 +7,7 @@ import {
 import { IconoEstado, Bandera, Svg, IcoCal, IcoMas, IcoPuntos, IcoTacho, IcoLapiz, IcoRama, IcoTilde, IcoEnviar, Caret, IcoX, Caras, Texto, achicar, Fotos, Composer, Docs, ACEPTA, TIPOS_OK, PESO_MAX, esImagen } from "@/components/piezas";
 import Bandeja from "@/components/Bandeja";
 import VersionNueva from "@/components/VersionNueva";
-import Resumen, { minutosDe } from "@/components/Resumen";
+import Resumen, { armarBase, medirRango, minutosDe } from "@/components/Resumen";
 import { ATAJOS_RECURRENCIA, DIAS_SEMANA_CORTO, diaSemanaDe, mismaRecurrencia, opcionesDelMes, siguienteVuelta, textoRecurrencia, vueltasEntre } from "@/lib/recurrencia";
 
 /* ════════════════════════════════════════════════════════════════════════════════
@@ -63,7 +63,9 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
   const [visor, setVisor] = useState(null);
   const [errorCarga, setErrorCarga] = useState(false);
 
-  const [vista, setVista] = useState("todas");
+  const [vista, setVista] = useState("inicio");
+  const [plegIni, setPlegIni] = useState({});
+  const [perIni, setPerIni] = useState("semana");
   const [orden, setOrden] = useState("fecha");
   const [verComp, setVerComp] = useState(false);
   const [plegados, setPlegados] = useState({});
@@ -266,8 +268,8 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
 
   /* ── crear ── */
   const defaultsGrupo = (key) => {
-    const base = { nombre: "", resp: [yo], fecha: hoy, prio: null, tipo: vista === "todas" || vista === "rec" ? null : vista, estado: "sin", recurrencia: vista === "rec" ? { regla: "semanal" } : null };
-    if (orden === "fecha") {
+    const base = { nombre: "", resp: [yo], fecha: hoy, prio: null, tipo: vista === "todas" || vista === "rec" || vista === "inicio" ? null : vista, estado: "sin", recurrencia: vista === "rec" ? { regla: "semanal" } : null };
+    if (orden === "fecha" || vista === "inicio") {
       const mapa = { atrasadas: hoy, hoy, manana: mas(hoy, 1), semana: mas(hoy, 2), siguiente: mas(hoy, 7), adelante: mas(hoy, 14), sinfecha: null };
       base.fecha = key in mapa ? mapa[key] : hoy;
     }
@@ -405,9 +407,9 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
 
   /* ══ armado ══ */
   const q = sinTildes(busca.trim());
-  const deVista = tareas.filter((t) => vista === "todas" || (vista === "rec" ? !!t.recurrencia : t.tipo === vista));
+  const deVista = tareas.filter((t) => vista === "todas" || (vista === "inicio" ? t.resp.includes(yo) : vista === "rec" ? !!t.recurrencia : t.tipo === vista));
   const visibles = deVista
-    .filter((t) => (verComp || t.estado !== "comp") && (!q || sinTildes(t.nombre).includes(q)))
+    .filter((t) => ((verComp && vista !== "inicio") || t.estado !== "comp") && (vista === "inicio" || !q || sinTildes(t.nombre).includes(q)))
     .sort((a, b) => {
       const fa = a.fecha || "9999", fb = b.fecha || "9999";
       if (fa !== fb) return fa < fb ? -1 : 1;
@@ -415,7 +417,7 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
     });
 
   let defs;
-  if (orden === "fecha") {
+  if (orden === "fecha" || vista === "inicio") {
     defs = [["atrasadas", "Atrasadas"], ["hoy", "Hoy"], ["manana", "Mañana"], ["semana", "Esta semana"], ["siguiente", "Semana siguiente"], ["adelante", "Más adelante"], ["sinfecha", "Sin fecha"]]
       .map(([key, label]) => ({ key, label, texto: true, color: key === "atrasadas" ? "var(--neg)" : key === "sinfecha" ? "var(--t3)" : "var(--t1)", de: (t) => cercania(hoy, t.fecha) === key }));
   } else if (orden === "prioridad") {
@@ -453,6 +455,131 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
   const nadaDeNada = deVista.length === 0;
   const hayVacio = !cargando && !grupos.length && !(nueva && nueva.grupo === "__top");
   const abiertoPop = (tipo, id) => (pop && pop.target === id && pop.tipo === tipo ? "on" : "");
+
+  /* ══ INICIO — copia del Inicio de Blue OS (components/inicio/InicioPersonal.tsx): el saludo con la
+     fecha, la franja de «hoy», tus tareas agrupadas por fecha y «Tus números». Los números salen
+     de la MISMA cuenta que el Resumen (medirRango), así las dos pantallas dicen lo mismo. ══ */
+  const inicio = () => {
+    const DIAS_L = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
+    const MESES_L = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
+    const pd = hoy.split("-").map(Number);
+    const fechaTxt = DIAS_L[dow(hoy)] + " " + pd[2] + " de " + MESES_L[pd[1] - 1];
+    const misAbiertas = tareas.filter((t) => t.resp.includes(yo) && t.estado !== "comp");
+    const deHoy = misAbiertas.filter((t) => t.fecha === hoy).length;
+    const atras = misAbiertas.filter((t) => t.fecha && t.fecha < hoy).length;
+    const titulo = !deHoy && !atras ? "No tienes tareas para hoy"
+      : (deHoy ? (deHoy === 1 ? "1 tarea para hoy" : deHoy + " tareas para hoy") : "Nada nuevo para hoy") + (atras ? " · " + atras + (atras === 1 ? " atrasada" : " atrasadas") : "");
+    /* Los números: esta semana (lunes a hoy) o este mes, contra el mismo largo de antes. */
+    const dw = dow(hoy) === 0 ? 7 : dow(hoy);
+    const d = perIni === "semana" ? mas(hoy, 1 - dw) : hoy.slice(0, 8) + "01";
+    const largo = dias(d, hoy) + 1;
+    const base = armarBase(tareas, vueltas);
+    const m = medirRango(base, d, hoy, hoy), a = medirRango(base, mas(d, -largo), mas(d, -1), hoy);
+    const pctTxt = (x, y) => (y > 0 ? Math.round((x / y) * 100) : 0);
+    const horas = (mn) => (!mn ? "0 h" : mn < 60 ? mn + " min" : (Math.round((mn / 60) * 10) / 10).toString().replace(".", ",") + " h");
+    const cmp = (ahora, antes, fmt, mejorSube = true) => {
+      const dif = ahora - antes;
+      return { antes: "antes " + fmt(antes), igual: dif === 0, sube: dif > 0, tono: dif === 0 ? "" : (dif > 0) === mejorSube ? "mejor" : "peor" };
+    };
+    const cumpl = pctTxt(m.cumplidas.length, m.vencian.length), cumplA = pctTxt(a.cumplidas.length, a.vencian.length);
+    const abiertasTodas = tareas.filter((t) => t.estado !== "comp");
+    const atrasTodas = abiertasTodas.filter((t) => t.fecha && t.fecha < hoy);
+    const nums = [
+      { nombre: "Completadas", valor: String(m.completadas.length), sub: (Math.round((m.completadas.length / largo) * 10) / 10).toString().replace(".", ",") + " por día", c: cmp(m.completadas.length, a.completadas.length, String), nota: "Tareas completadas en el período, contra el mismo largo de antes." },
+      { nombre: "% Cumplimiento", valor: cumpl + "%", sub: m.cumplidas.length + " de " + m.vencian.length + " a tiempo", c: cmp(cumpl, cumplA, (x) => x + "%"), nota: "De lo que vencía, cuánto se hizo el día de su fecha o antes." },
+      { nombre: "Tiempo liberado a Franco", valor: horas(m.minLiberados), sub: m.delegadas.length + (m.delegadas.length === 1 ? " tarea resuelta sin ti" : " tareas resueltas sin ti"), c: cmp(m.minLiberados, a.minLiberados, horas), nota: "Estimado: el tiempo de las tareas completadas donde Franco no es responsable." },
+      { nombre: "Atrasadas", valor: String(atrasTodas.length), sub: abiertasTodas.length + " abiertas en total", c: null, nota: "Abiertas con la fecha ya pasada, de todo el equipo." },
+    ];
+    const abiertoIni = (k) => plegIni[k] ?? ["atrasadas", "hoy", "manana"].includes(k);
+    const irResumen = () => irA("resumen");
+    return (
+      <div className="ini">
+        <header className="ini-head ini-head--acciones">
+          <div>
+            <h1>Inicio</h1>
+            <p className="ini-saludo">{"Hola, " + yoP.nombre.split(" ")[0] + " · " + fechaTxt}</p>
+          </div>
+          <div className="ini-head-botones">
+            <button type="button" className="ini-btn ini-btn--secundario" onClick={() => irA("bandeja")}>
+              <Svg tam={16} ancho={1.7}><path d="M22 12h-6l-2 3h-4l-2-3H2" /><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" /></Svg>
+              Bandeja{sinLeerBandeja > 0 && <span className="ini-btn-n">{sinLeerBandeja}</span>}
+            </button>
+            <button type="button" className="ini-btn ini-btn--secundario" onClick={irResumen}>
+              <Svg tam={16} ancho={1.7}><path d="M3 3v18h18" /><path d="M7 15l4-4 3 3 6-6" /></Svg>Resumen
+            </button>
+            <button type="button" className="ini-btn ini-btn--primario" onClick={() => abrirNueva("__top")}><IcoMas tam={14} />Nueva tarea</button>
+          </div>
+        </header>
+
+        <div className={"ini-ahora ini-ahora--suave" + (atras ? " ini-ahora--alerta" : "")} role="status">
+          <span className="ini-ahora-ico"><Svg tam={22} ancho={1.7}><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></Svg></span>
+          <div className="ini-ahora-texto">
+            <div className="ini-ahora-cap">{"Hoy · " + DIAS_L[dow(hoy)]}</div>
+            <div className="ini-ahora-titulo">{cargando ? "Cargando tus tareas…" : titulo}</div>
+          </div>
+        </div>
+
+        <section className="ini-card ini-tareas" aria-label="Mis tareas">
+          <header className="ini-card-head">
+            <h2 className="ini-h2">Mis tareas</h2>
+            <span className="ini-cuenta">{misAbiertas.length + (misAbiertas.length === 1 ? " abierta" : " abiertas")}</span>
+          </header>
+          {nueva && nueva.grupo === "__top" && filaNueva()}
+          {!cargando && !grupos.length && !(nueva && nueva.grupo === "__top") && (
+            <div className="ini-vacio">
+              <p className="ini-vacio-tit">No tienes tareas abiertas</p>
+              <button type="button" className="ini-btn ini-btn--secundario" onClick={() => abrirNueva("__top")}><IcoMas tam={14} />Nueva tarea</button>
+            </div>
+          )}
+          {grupos.map((g) => {
+            const ab = abiertoIni(g.key);
+            return (
+              <div key={g.key} className="grupo">
+                <div className="ghead">
+                  <button type="button" className="caret" onClick={() => setPlegIni((p) => ({ ...p, [g.key]: !ab }))} aria-label="Plegar grupo"><Caret abierto={ab} /></button>
+                  <span className="glabel" style={{ color: g.color }}>{g.label}</span>
+                  <span className="conteo">{g.lista.length}</span>
+                </div>
+                {ab && (
+                  <div className="gcuerpo">
+                    <div className="cols"><span>Nombre</span><span>Responsable</span><span>Fecha</span><span>Calendario</span><span>Prioridad</span><span>Edad</span><span>Tipo</span><span /></div>
+                    {g.lista.map(filaTarea)}
+                    {g.nuevaAqui ? filaNueva() : <button type="button" className="add" onClick={() => abrirNueva(g.key)}><IcoMas />Añadir tarea</button>}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </section>
+
+        <section className="ini-card ini-numeros" aria-label="Tus números">
+          <header className="ini-card-head">
+            <h2 className="ini-h2">Tus números</h2>
+            <div className="rs-seg">
+              <button type="button" className={perIni === "semana" ? "on" : ""} onClick={() => setPerIni("semana")}>Esta semana</button>
+              <button type="button" className={perIni === "mes" ? "on" : ""} onClick={() => setPerIni("mes")}>Este mes</button>
+            </div>
+          </header>
+          <div className="ini-num-grilla">
+            {nums.map((n) => (
+              <button key={n.nombre} type="button" className="ini-num" onClick={irResumen} title={n.nota}>
+                <span className="ini-num-nombre">{n.nombre}</span>
+                {cargando ? <span className="ini-num-pastilla" /> : <span className="ini-num-valor">{n.valor}</span>}
+                {!cargando && <span className="ini-num-sub">{n.sub}</span>}
+                {n.c && !cargando && (
+                  <span className="ini-num-cmp">
+                    <span className="ini-num-antes">{n.c.antes}</span>
+                    {n.c.igual ? <span className="ini-num-flecha">Igual</span>
+                      : <span className={"ini-num-flecha ini-num-flecha--" + n.c.tono}>{n.c.sube ? "↑" : "↓"}</span>}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+        </section>
+      </div>
+    );
+  };
 
   /* ── piezas ── */
   const filaNueva = () => {
@@ -973,6 +1100,10 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
     <div className={"tf " + (tema === "claro" ? "claro" : "")} ref={rootRef}>
       <aside className="side">
         <div className="marca"><span className="marca-logo">FK</span><div><b>TAREAS</b><span>{nombresEquipo}</span></div></div>
+        <button type="button" className={"nav " + (vista === "inicio" ? "on" : "")} onClick={() => irA("inicio")}>
+          <Svg tam={16} ancho={1.7}><path d="M3 10.5 12 3l9 7.5" /><path d="M5 9v11h14V9" /><path d="M10 20v-6h4v6" /></Svg>
+          <span>Inicio</span>
+        </button>
         <button type="button" className={"nav " + (vista === "bandeja" ? "on" : "")} onClick={() => irA("bandeja")}>
           <Svg tam={16} ancho={1.7}><path d="M22 12h-6l-2 3h-4l-2-3H2" /><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" /></Svg>
           <span>Bandeja</span>
@@ -1007,6 +1138,9 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
 
       <section className="main">
         <div className="tabs-movil">
+          <button type="button" className={"nav nav-bandeja " + (vista === "inicio" ? "on" : "")} onClick={() => irA("inicio")} aria-label="Inicio" title="Inicio">
+            <Svg tam={16} ancho={1.7}><path d="M3 10.5 12 3l9 7.5" /><path d="M5 9v11h14V9" /><path d="M10 20v-6h4v6" /></Svg>
+          </button>
           <button type="button" className={"nav nav-bandeja " + (vista === "bandeja" ? "on" : "")} onClick={() => irA("bandeja")} aria-label="Bandeja de entrada" title="Bandeja de entrada">
             <Svg tam={16} ancho={1.8}><path d="M22 12h-6l-2 3h-4l-2-3H2" /><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" /></Svg>
             {sinLeerBandeja > 0 && <span className="cnt">{sinLeerBandeja}</span>}
@@ -1027,7 +1161,7 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
           </button>
         </div>
 
-        {vista === "resumen" ? (<>
+        {vista === "inicio" ? <div className="bdj-scroll">{inicio()}</div> : vista === "resumen" ? (<>
           <div className="head">
             <h1>Resumen</h1>
           </div>
