@@ -86,7 +86,7 @@ function Kpi({ etiqueta, valor, extra, ayuda, antes, mejorSiSube = true, onClick
   );
 }
 
-export default function Resumen({ tareas, P, claves, abrirTarea, tipDe }) {
+export default function Resumen({ tareas, vueltas = [], P, claves, abrirTarea, tipDe }) {
   const hoy = hoyIso();
   const [preset, setPreset] = useState("30");
   const [tipo, setTipo] = useState(null);
@@ -98,7 +98,18 @@ export default function Resumen({ tareas, P, claves, abrirTarea, tipDe }) {
   const largo = dias(desde, hasta) + 1;
   const [desdeA, hastaA] = [mas(desde, -largo), mas(desde, -1)];
 
-  const base = useMemo(() => tareas.filter((t) => !tipo || t.tipo === tipo), [tareas, tipo]);
+  /* Cada vuelta completada de una recurrente cuenta como una tarea completada más, con la
+     fecha que tenía esa vuelta (la recurrente en sí nunca queda «Completada»). */
+  const base = useMemo(() => {
+    const porId = new Map(tareas.map((t) => [t.id, t]));
+    const deVueltas = vueltas.map((v) => {
+      const t = porId.get(v.tarea_id);
+      if (!t) return null;
+      return { ...t, id: "v-" + v.id, tareaId: t.id, estado: "comp", resp: v.resp && v.resp.length ? v.resp : t.resp, completada: v.completada,
+        fecha: v.vencia, fecha_original: v.vencia, creada: null, iniciada: v.iniciada, subs: [] };
+    }).filter(Boolean);
+    return tareas.concat(deVueltas).filter((t) => !tipo || t.tipo === tipo);
+  }, [tareas, vueltas, tipo]);
 
   /* Todas las cuentas de un rango, en una sola función: así el período anterior se calcula igual. */
   const medir = (d, h) => {
@@ -173,7 +184,7 @@ export default function Resumen({ tareas, P, claves, abrirTarea, tipDe }) {
     const fin = t.completada ? diaLocal(t.completada) : null;
     const tarde = fin && (t.fecha_original || t.fecha) && fin > (t.fecha_original || t.fecha);
     return (
-      <button key={t.id} type="button" className="rs-tarea" onClick={() => abrirTarea(t.id)}>
+      <button key={t.id} type="button" className="rs-tarea" onClick={() => abrirTarea(t.tareaId || t.id)}>
         <IconoEstado estado={t.estado} />
         <span className="rs-tarea-nom">{t.nombre}</span>
         {tp && <span className="rs-tipo" style={{ "--c": tp.color }}>{tp.label}</span>}

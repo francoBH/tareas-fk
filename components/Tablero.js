@@ -4,9 +4,11 @@ import { supabase } from "@/lib/supabase";
 import {
   atajos as atajosDe, calendario, cercania, dias, dow, fechaCreacion, fechaLarga, fechaRel, hace, hoyIso, iso, mas, mesKey, sinTildes, tituloMes,
 } from "@/lib/fechas";
-import { IconoEstado, Bandera, Svg, IcoCal, IcoMas, IcoPuntos, IcoTacho, IcoLapiz, IcoRama, IcoTilde, IcoEnviar, Caret, IcoX, Caras, Texto, achicar, Fotos, Composer } from "@/components/piezas";
+import { IconoEstado, Bandera, Svg, IcoCal, IcoMas, IcoPuntos, IcoTacho, IcoLapiz, IcoRama, IcoTilde, IcoEnviar, Caret, IcoX, Caras, Texto, achicar, Fotos, Composer, Docs, ACEPTA, TIPOS_OK, PESO_MAX, esImagen } from "@/components/piezas";
 import Bandeja from "@/components/Bandeja";
+import VersionNueva from "@/components/VersionNueva";
 import Resumen, { minutosDe } from "@/components/Resumen";
+import { ATAJOS_RECURRENCIA, DIAS_SEMANA_CORTO, diaSemanaDe, mismaRecurrencia, opcionesDelMes, siguienteVuelta, textoRecurrencia, vueltasEntre } from "@/lib/recurrencia";
 
 /* ════════════════════════════════════════════════════════════════════════════════
    EL TABLERO — copia del de Blue OS («Todas» + «Mis tareas»), con Tipo en vez de
@@ -32,6 +34,7 @@ const TIPOS = [
   { id: "per", label: "Personal", largo: "Personal · Franco", color: "var(--per)", ink: "var(--per-ink)" },
 ];
 const TIEMPOS = [[15, "15 min"], [30, "30 min"], [45, "45 min"], [60, "1 h"], [120, "2 h"], [240, "4 h"], [480, "1 día"]];
+const IcoRepite = ({ tam = 12 }) => <Svg tam={tam} ancho={2}><path d="M17 2.5 20.5 6 17 9.5" /><path d="M3.5 11V9.5a3.5 3.5 0 0 1 3.5-3.5h13.5" /><path d="M7 21.5 3.5 18 7 14.5" /><path d="M20.5 13v1.5a3.5 3.5 0 0 1-3.5 3.5H3.5" /></Svg>;
 const RANGO_PRIO = { urgente: 0, alta: 1, media: 2, baja: 3 };
 const estDe = (id) => ESTADOS.find((e) => e.id === id) || ESTADOS[1];
 const priDe = (id) => PRIORIDADES.find((p) => p.id === id) || null;
@@ -48,6 +51,11 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
   const cache = useMemo(() => { try { return JSON.parse(localStorage.getItem("tf-datos") || "null"); } catch { return null; } }, []);
   const [filas, setFilas] = useState(() => cache?.filas || []);
   const [coms, setComs] = useState(() => cache?.coms || []);
+  /* Cada vuelta completada de una recurrente (para el Resumen). */
+  const [vueltas, setVueltas] = useState(() => cache?.vueltas || []);
+  const [persoRep, setPersoRep] = useState(null);
+  const [arrastraDesc, setArrastraDesc] = useState(false);
+  const [subiendoDesc, setSubiendoDesc] = useState(0);
   /* Lo que YO ya leí de la bandeja (ids de comentarios). */
   const [leidas, setLeidas] = useState(() => new Set(cache?.leidas || []));
   const [cargando, setCargando] = useState(() => !cache);
@@ -91,11 +99,13 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
 
   /* ── lectura y tiempo real ── */
   const cargar = useCallback(async () => {
-    const [a, b, l] = await Promise.all([
+    const [a, b, l, v] = await Promise.all([
       supabase.from("tareas").select("*").order("creada", { ascending: true }),
       supabase.from("comentarios").select("*").order("creado", { ascending: true }),
       supabase.from("lecturas").select("comentario_id"),
+      supabase.from("vueltas").select("*"),
     ]);
+    if (!v.error) setVueltas(v.data || []);
     if (a.error || b.error) { setErrorCarga(true); setCargando(false); return; }
     setErrorCarga(false);
     setFilas(a.data || []);
@@ -121,6 +131,7 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
     const canal = supabase.channel("tablero")
       .on("postgres_changes", { event: "*", schema: "public", table: "tareas" }, aplicarCambio(setFilas))
       .on("postgres_changes", { event: "*", schema: "public", table: "comentarios" }, aplicarCambio(setComs))
+      .on("postgres_changes", { event: "*", schema: "public", table: "vueltas" }, aplicarCambio(setVueltas))
       /* Lo leído en otro dispositivo (la compu y el celular) se refleja solo. */
       .on("postgres_changes", { event: "*", schema: "public", table: "lecturas" }, (p) => {
         const id = p.eventType === "DELETE" ? p.old?.comentario_id : p.new?.comentario_id;
@@ -144,20 +155,21 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
   /* La copia del navegador se guarda sola, un rato después del último cambio. */
   useEffect(() => {
     const t = setTimeout(() => {
-      try { localStorage.setItem("tf-datos", JSON.stringify({ filas: filas.filter((f) => !String(f.id).startsWith("tmp-")), coms: coms.filter((c) => !String(c.id).startsWith("tmp-") && !c.subiendo), leidas: [...leidas] })); } catch {}
+      try { localStorage.setItem("tf-datos", JSON.stringify({ filas: filas.filter((f) => !String(f.id).startsWith("tmp-")), coms: coms.filter((c) => !String(c.id).startsWith("tmp-") && !c.subiendo), leidas: [...leidas], vueltas })); } catch {}
     }, 500);
     return () => clearTimeout(t);
-  }, [filas, coms, leidas]);
+  }, [filas, coms, leidas, vueltas]);
 
   /* Las imágenes son privadas: se piden links firmados (valen 7 días) para las que falten. */
   useEffect(() => {
-    const faltan = [...new Set(coms.flatMap((c) => c.imagenes || []))].filter((p) => !urls[p]);
+    const faltan = [...new Set(coms.flatMap((c) => (c.imagenes || []).concat((c.archivos || []).map((a) => a.ruta).filter(Boolean)))
+      .concat(filas.flatMap((f) => (f.adjuntos || []).map((a) => a.ruta))))].filter((p) => p && !urls[p]);
     if (!faltan.length) return;
     supabase.storage.from("adjuntos").createSignedUrls(faltan, 604800).then(({ data }) => {
       if (!data) return;
       setUrls((u) => { const n = { ...u }; data.forEach((d) => { if (d.signedUrl && !n[d.path]) n[d.path] = d.signedUrl; }); return n; });
     });
-  }, [coms, urls]);
+  }, [coms, filas, urls]);
 
   /* Las tareas con sus comentarios armados en hilo. */
   const tareas = useMemo(() => {
@@ -184,11 +196,40 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
     return o;
   };
   const guardar = useCallback(async (ids, cambios) => {
+    /* 🔁 Una RECURRENTE no se cierra: al completarla pasa a su próxima fecha y vuelve a «Sin
+       iniciar», con sus subtareas destildadas (como Blue OS). La vuelta queda anotada. */
+    if (cambios.estado === "comp") {
+      const rec = filas.filter((f) => ids.includes(f.id) && f.recurrencia);
+      if (rec.length) {
+        const resto = ids.filter((id) => !rec.some((f) => f.id === id));
+        const hoyD = hoyIso();
+        const textos = [];
+        for (const f of rec) {
+          const prox = siguienteVuelta(f.fecha, f.recurrencia, hoyD);
+          if (!prox) { resto.push(f.id); continue; }
+          const patch = { ...aDb(cambios), estado: "sin", fecha: prox.fecha, fecha_original: prox.fecha, recurrencia: prox.recurrencia, iniciada: null, completada: null,
+            subtareas: (f.subtareas || []).map((x) => ({ ...x, hecha: false })) };
+          const vuelta = { id: crypto.randomUUID(), tarea_id: f.id, vencia: f.fecha, completada: new Date().toISOString(), por: yo, resp: f.resp || [], iniciada: f.iniciada || null };
+          setFilas((fs) => fs.map((x) => (x.id === f.id ? { ...x, ...patch } : x)));
+          setVueltas((vs) => vs.concat([vuelta]));
+          textos.push(fechaRel(hoyD, prox.fecha).toLowerCase());
+          const [u, i] = await Promise.all([
+            supabase.from("tareas").update(patch).eq("id", f.id),
+            supabase.from("vueltas").insert(vuelta),
+          ]);
+          if (u.error || i.error) { avisar("No se pudo guardar. Vuelve a intentar."); cargar(); return; }
+        }
+        if (rec.length === 1 && textos.length) avisar("Lista. Vuelve " + (/^\d/.test(textos[0]) ? "el " : "") + textos[0]);
+        else if (textos.length) avisar(textos.length + " recurrentes pasaron a su próxima fecha");
+        if (!resto.length) return;
+        ids = resto;
+      }
+    }
     const db = aDb(cambios);
     setFilas((fs) => fs.map((f) => (ids.includes(f.id) ? { ...f, ...db } : f)));
     const { error } = await supabase.from("tareas").update(db).in("id", ids);
     if (error) { avisar("No se pudo guardar. Vuelve a intentar."); cargar(); }
-  }, [avisar, cargar]);
+  }, [avisar, cargar, filas, yo]);
   const cambiarTarea = (id, cambios) => guardar([id], cambios);
   const aplicar = (target, cambios) => {
     if (target === "nueva") { setNueva((n) => ({ ...n, ...cambios })); return; }
@@ -217,6 +258,7 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
       if (top + alto > H - 8) { const arriba = (r.top - rr.top) / z - 4 - alto; top = arriba > 8 ? arriba : Math.max(8, H - 8 - alto); }
     }
     if (tipo === "fecha") setCalMes((valorDe(target, "fecha") || hoy).slice(0, 7));
+    setPersoRep(null);
     setBorrarConf(false);
     setPop({ tipo, target, left, top, ancho });
   };
@@ -224,7 +266,7 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
 
   /* ── crear ── */
   const defaultsGrupo = (key) => {
-    const base = { nombre: "", resp: [yo], fecha: hoy, prio: null, tipo: vista === "todas" ? null : vista, estado: "sin" };
+    const base = { nombre: "", resp: [yo], fecha: hoy, prio: null, tipo: vista === "todas" || vista === "rec" ? null : vista, estado: "sin", recurrencia: vista === "rec" ? { regla: "semanal" } : null };
     if (orden === "fecha") {
       const mapa = { atrasadas: hoy, hoy, manana: mas(hoy, 1), semana: mas(hoy, 2), siguiente: mas(hoy, 7), adelante: mas(hoy, 14), sinfecha: null };
       base.fecha = key in mapa ? mapa[key] : hoy;
@@ -241,7 +283,7 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
     if (!n || !n.nombre.trim() || !n.tipo) return;
     /* La tarea aparece YA, con un id provisorio, y se cambia por la de la base cuando vuelve. */
     const id = crypto.randomUUID();
-    const fila = { id, nombre: n.nombre.trim(), tipo: n.tipo, estado: n.estado, prio: n.prio, resp: n.resp, fecha: n.fecha, creado_por: yo };
+    const fila = { id, nombre: n.nombre.trim(), tipo: n.tipo, estado: n.estado, prio: n.prio, resp: n.resp, fecha: n.fecha, creado_por: yo, recurrencia: n.recurrencia || null };
     setNueva({ ...n, nombre: "" });
     setFilas((fs) => fs.concat([{ ...fila, creada: new Date().toISOString(), subtareas: [], seguidores: [], descripcion: "" }]));
     const { data, error } = await supabase.from("tareas").insert(fila).select().single();
@@ -255,32 +297,59 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
   /* ── comentarios ── */
   /* El comentario se ve al instante (con sus fotos locales) mientras las imágenes suben. Si algo
      falla, desaparece y el texto vuelve a la caja para no perder lo escrito. */
+  /* Sube UN archivo al cajón de la tarea. Las fotos se achican antes; los documentos van tal cual.
+     Devuelve { ruta, nombre, tipo, peso }. */
+  const subirArchivo = async (tarea, file) => {
+    const archivo = esImagen(file.type) ? await achicar(file) : file;
+    const ext = (file.name.includes(".") ? file.name.split(".").pop() : (archivo.type.split("/")[1] || "bin")).toLowerCase().replace("jpeg", "jpg").replace(/[^a-z0-9]/g, "").slice(0, 8) || "bin";
+    const ruta = tarea + "/" + crypto.randomUUID() + "." + ext;
+    const { error } = await supabase.storage.from("adjuntos").upload(ruta, archivo, { contentType: archivo.type, upsert: false });
+    if (error) throw error;
+    return { ruta, nombre: file.name || "archivo." + ext, tipo: archivo.type, peso: archivo.size };
+  };
   const enviarComentario = async (txt, padre, archivos = [], tareaId) => {
     const t = txt.trim();
     const tarea = tareaId || abierta;
     if ((!t && !archivos.length) || !tarea) return false;
     const id = crypto.randomUUID();
-    const locales = archivos.map((a) => a.url);
-    setComs((cs) => cs.concat([{ id, tarea_id: tarea, padre_id: padre || null, autor: yo, txt: t, imagenes: [], locales, editado: false, creado: new Date().toISOString(), subiendo: archivos.length > 0 }]));
+    const imgs = archivos.filter((a) => a.img), docs = archivos.filter((a) => !a.img);
+    const locales = imgs.map((a) => a.url);
+    const docsLocales = docs.map((a) => ({ nombre: a.file.name, tipo: a.file.type, peso: a.file.size }));
+    setComs((cs) => cs.concat([{ id, tarea_id: tarea, padre_id: padre || null, autor: yo, txt: t, imagenes: [], archivos: docsLocales, locales, editado: false, creado: new Date().toISOString(), subiendo: archivos.length > 0 }]));
     try {
-      const rutas = await Promise.all(archivos.map(async (a) => {
-        const archivo = await achicar(a.file);
-        const ext = (archivo.type.split("/")[1] || "jpg").replace("jpeg", "jpg");
-        const ruta = tarea + "/" + crypto.randomUUID() + "." + ext;
-        const { error } = await supabase.storage.from("adjuntos").upload(ruta, archivo, { contentType: archivo.type, upsert: false });
-        if (error) throw error;
-        return ruta;
-      }));
+      const subidasImg = await Promise.all(imgs.map((a) => subirArchivo(tarea, a.file)));
+      const subidasDoc = await Promise.all(docs.map((a) => subirArchivo(tarea, a.file)));
+      const rutas = subidasImg.map((x) => x.ruta);
       setUrls((u) => { const n = { ...u }; rutas.forEach((r, i) => { n[r] = locales[i]; }); return n; });
-      const { data, error } = await supabase.from("comentarios").insert({ id, tarea_id: tarea, padre_id: padre || null, autor: yo, txt: t, imagenes: rutas }).select().single();
+      const { data, error } = await supabase.from("comentarios").insert({ id, tarea_id: tarea, padre_id: padre || null, autor: yo, txt: t, imagenes: rutas, archivos: subidasDoc }).select().single();
       if (error) throw error;
       setComs((cs) => cs.map((c) => (c.id === id ? data : c)));
       return true;
     } catch {
       setComs((cs) => cs.filter((c) => c.id !== id));
-      avisar(archivos.length ? "No se pudo subir la imagen. Prueba de nuevo." : "No se pudo enviar el comentario.");
+      avisar(archivos.length ? "No se pudo subir el archivo. Prueba de nuevo." : "No se pudo enviar el comentario.");
       return false;
     }
+  };
+  /* Adjuntos de la DESCRIPCIÓN: se suben y se suman a la lista de la tarea. */
+  const adjuntarDesc = async (tareaId, files) => {
+    const todos = [...(files || [])];
+    const ok = todos.filter((f) => TIPOS_OK.includes(f.type) && f.size <= PESO_MAX);
+    if (ok.length < todos.length) avisar(todos.some((f) => f.size > PESO_MAX) ? "Hay archivos de más de 25 MB: esos no se suben." : "Ese tipo de archivo no se puede subir.");
+    if (!ok.length) return;
+    setSubiendoDesc((n) => n + ok.length);
+    try {
+      const nuevos = await Promise.all(ok.map((f) => subirArchivo(tareaId, f)));
+      ok.forEach((f, i) => { if (esImagen(f.type)) { const u = URL.createObjectURL(f); setUrls((x) => ({ ...x, [nuevos[i].ruta]: u })); } });
+      const actual = (filas.find((f) => f.id === tareaId)?.adjuntos) || [];
+      await guardar([tareaId], { adjuntos: actual.concat(nuevos) });
+    } catch { avisar("No se pudo subir el archivo. Prueba de nuevo."); }
+    setSubiendoDesc((n) => Math.max(0, n - ok.length));
+  };
+  const quitarAdjunto = (t, a) => {
+    guardar([t.id], { adjuntos: (t.adjuntos || []).filter((x) => x.ruta !== a.ruta) });
+    supabase.storage.from("adjuntos").remove([a.ruta]);
+    avisar("Archivo quitado");
   };
   const editarComentario = async (id, txt) => {
     setComs((cs) => cs.map((c) => (c.id === id ? { ...c, txt, editado: true } : c)));
@@ -288,7 +357,7 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
     if (error) { avisar("No se pudo editar."); cargar(); }
   };
   const borrarComentario = async (id) => {
-    const fotos = coms.filter((c) => c.id === id || c.padre_id === id).flatMap((c) => (c.autor === yo ? c.imagenes || [] : []));
+    const fotos = coms.filter((c) => c.id === id || c.padre_id === id).flatMap((c) => (c.autor === yo ? (c.imagenes || []).concat((c.archivos || []).map((a) => a.ruta)) : []));
     if (fotos.length) supabase.storage.from("adjuntos").remove(fotos);
     setComs((cs) => cs.filter((c) => c.id !== id && c.padre_id !== id));
     const { error } = await supabase.from("comentarios").delete().eq("id", id);
@@ -336,7 +405,7 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
 
   /* ══ armado ══ */
   const q = sinTildes(busca.trim());
-  const deVista = tareas.filter((t) => vista === "todas" || t.tipo === vista);
+  const deVista = tareas.filter((t) => vista === "todas" || (vista === "rec" ? !!t.recurrencia : t.tipo === vista));
   const visibles = deVista
     .filter((t) => (verComp || t.estado !== "comp") && (!q || sinTildes(t.nombre).includes(q)))
     .sort((a, b) => {
@@ -375,8 +444,8 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
     abrirTarea(ordenIds[(i + paso + ordenIds.length) % ordenIds.length]);
   };
 
-  const urgentes = (tipo) => tareas.filter((t) => (tipo === "todas" || t.tipo === tipo) && t.estado !== "comp" && t.fecha && dias(hoy, t.fecha) <= 0).length;
-  const navs = [{ id: "todas", label: "Todas" }].concat(TIPOS.map((x) => ({ id: x.id, label: x.label, color: x.color })));
+  const urgentes = (tipo) => tareas.filter((t) => (tipo === "todas" || (tipo === "rec" ? !!t.recurrencia : t.tipo === tipo)) && t.estado !== "comp" && t.fecha && dias(hoy, t.fecha) <= 0).length;
+  const navs = [{ id: "todas", label: "Todas" }].concat(TIPOS.map((x) => ({ id: x.id, label: x.label, color: x.color })), [{ id: "rec", label: "Recurrentes" }]);
   const vistaTipo = tipDe(vista);
   const abiertasVista = deVista.filter((t) => t.estado !== "comp").length;
   const selIds = Object.keys(sel).filter((id) => tareas.some((t) => t.id === id));
@@ -398,8 +467,8 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
         <button type="button" className={"nchip " + (n.resp.length ? "puesto" : "")} onClick={(e) => abrirPop(e, "resp", "nueva", 230, 130)}>
           {n.resp.length ? <Caras ids={n.resp} P={P} /> : <span>Responsable</span>}
         </button>
-        <button type="button" className={"nchip " + (n.fecha ? "puesto" : "")} onClick={(e) => abrirPop(e, "fecha", "nueva", 470, 330)}>
-          <IcoCal />{n.fecha ? fechaRel(hoy, n.fecha) : "Fecha"}
+        <button type="button" className={"nchip " + (n.fecha ? "puesto" : "")} onClick={(e) => abrirPop(e, "fecha", "nueva", 470, 430)}>
+          <IcoCal />{n.fecha ? fechaRel(hoy, n.fecha) : "Fecha"}{n.recurrencia && <IcoRepite />}
         </button>
         <button type="button" className={"nchip " + (pr ? "puesto" : "")} onClick={(e) => abrirPop(e, "prio", "nueva", 200, 230)}>
           <Bandera prio={n.prio} />{pr ? pr.label : "Prioridad"}
@@ -433,6 +502,7 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
               onBlur={() => { const v = renDraft.trim(); if (ren && v && v !== t.nombre) cambiarTarea(ren, { nombre: v }); setRen(null); }} />
           ) : (<>
             <span className="ntxt" title={t.nombre}>{t.nombre}</span>
+            {t.recurrencia && <span className="hijas rep" title={"Se repite: " + textoRecurrencia(t.recurrencia)}><IcoRepite /></span>}
             {t.subs.length > 0 && <span className="hijas" title="Subtareas"><IcoRama />{hechas}/{t.subs.length}</span>}
             {t.nComs > 0 && <span className="hijas" title="Comentarios"><Svg tam={11} ancho={2}><path d="M20 12.5a7.5 7.5 0 0 1-11 6.6L4 20l1-4.4A7.5 7.5 0 1 1 20 12.5Z" /></Svg>{t.nComs}</span>}
             <button type="button" className="lapiz" aria-label="Renombrar" onClick={(e) => { parar(e); setRen(t.id); setRenDraft(t.nombre); setPop(null); }}><IcoLapiz /></button>
@@ -441,7 +511,7 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
         <button type="button" className={"celda " + abiertoPop("resp", t.id)} onClick={(e) => abrirPop(e, "resp", t.id, 230, 130)} aria-label="Responsables">
           {t.resp.length ? <Caras ids={t.resp} P={P} /> : <span className="hueco"><Svg tam={16} ancho={1.7}><circle cx="10" cy="8" r="3.5" /><path d="M3.5 19.5a6.5 6.5 0 0 1 13 0" /><path d="M19 8v6" /><path d="M16 11h6" /></Svg></span>}
         </button>
-        <button type="button" className={"celda " + (venc ? "venc " : "") + abiertoPop("fecha", t.id)} onClick={(e) => abrirPop(e, "fecha", t.id, 470, 330)} aria-label="Fecha">
+        <button type="button" className={"celda " + (venc ? "venc " : "") + abiertoPop("fecha", t.id)} onClick={(e) => abrirPop(e, "fecha", t.id, 470, 430)} aria-label="Fecha">
           {t.fecha ? <span>{fechaRel(hoy, t.fecha)}</span> : <span className="hueco"><IcoCal tam={15} /></span>}
         </button>
         <div className="celda">{t.fecha && <span className="chip">{calendario(t.fecha)}</span>}</div>
@@ -575,11 +645,33 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
         diasMes.push(f);
       }
       const mover = (k) => { const x = new Date(yy, mm - 1 + k, 1); setCalMes(mesKey(x.getFullYear(), x.getMonth() + 1)); };
+      /* 🔁 La recurrencia vive en el mismo selector de fecha, como en Blue OS. */
+      const rep = tg === "lote" ? null : valorDe(tg, "recurrencia");
+      const repetir = (r) => {
+        const cambios = { recurrencia: r };
+        if (r && !actual) cambios.fecha = hoy;
+        aplicar(tg, cambios); setPersoRep(null);
+      };
+      const proximas = new Set(rep && actual ? vueltasEntre(actual, rep, diasMes[0], diasMes[diasMes.length - 1]) : []);
+      const esAtajo = ATAJOS_RECURRENCIA.some((a) => mismaRecurrencia(a.regla, rep));
+      const fRef = actual || hoy;
+      const pr = persoRep;
       return (
         <div className="fecha-pop">
           <div className="atajos">
             {atajosDe(hoy).map(([l, p, f]) => <button key={l} type="button" className="opt" onClick={() => poner(f)}>{l}<span className="pista">{p}</span></button>)}
             <button type="button" className="quitar" onClick={() => poner(null)}>Quitar fecha</button>
+            {tg !== "lote" && (<>
+              <span className="rep-tit"><IcoRepite tam={12} />Se repite</span>
+              <button type="button" className={"opt " + (!rep ? "on" : "")} onClick={() => repetir(null)}>No se repite</button>
+              {ATAJOS_RECURRENCIA.map((a) => (
+                <button key={a.id} type="button" className={"opt " + (mismaRecurrencia(a.regla, rep) ? "on" : "")} onClick={() => repetir(a.regla)}>{a.label}</button>
+              ))}
+              <button type="button" className={"opt " + (rep && !esAtajo ? "on" : "")}
+                onClick={() => { const b = rep ? { ...rep } : { regla: "semanal", dias_semana: [diaSemanaDe(fRef) || 1] }; if (b.regla === "semanal" && !(b.dias_semana || []).length) b.dias_semana = [diaSemanaDe(fRef) || 1]; setPersoRep(b); }}>
+                Personalizada{rep && !esAtajo && <span className="pista">{textoRecurrencia(rep)}</span>}
+              </button>
+            </>)}
           </div>
           <div className="calen">
             <div className="calen-head">
@@ -590,9 +682,45 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
             <div className="dias">
               {["L", "M", "M", "J", "V", "S", "D"].map((d, i) => <span key={i} className="dsem">{d}</span>)}
               {diasMes.map((f) => (
-                <button key={f} type="button" className={["dia", f.slice(0, 7) !== mes ? "fuera" : "", f === hoy ? "hoy" : "", f === actual ? "sel" : ""].join(" ")} onClick={() => poner(f)}>{Number(f.slice(8))}</button>
+                <button key={f} type="button" className={["dia", f.slice(0, 7) !== mes ? "fuera" : "", f === hoy ? "hoy" : "", f === actual ? "sel" : "", proximas.has(f) ? "prox" : ""].join(" ")} onClick={() => poner(f)} title={proximas.has(f) ? "Próxima vuelta" : undefined}>{Number(f.slice(8))}</button>
               ))}
             </div>
+            {pr && (
+              <div className="perso">
+                <div className="perso-fila">
+                  <span>Cada</span>
+                  <input type="number" min={1} max={99} value={pr.cada || 1} aria-label="Cada cuántos"
+                    onChange={(e) => { const n = Math.max(1, Math.min(99, Number(e.target.value) || 1)); setPersoRep({ ...pr, cada: n }); }} />
+                  {[["diaria", "días"], ["semanal", "semanas"], ["mensual", "meses"], ["anual", "años"]].map(([r, l]) => (
+                    <button key={r} type="button" className={"perso-u " + (pr.regla === r ? "on" : "")}
+                      onClick={() => setPersoRep({ regla: r, cada: pr.cada, ...(r === "semanal" ? { dias_semana: [diaSemanaDe(fRef) || 1] } : {}) })}>{l}</button>
+                  ))}
+                </div>
+                {pr.regla === "semanal" && (
+                  <div className="perso-fila">
+                    {DIAS_SEMANA_CORTO.map((d, i) => {
+                      const on = (pr.dias_semana || []).includes(i + 1);
+                      return <button key={d} type="button" className={"perso-d " + (on ? "on" : "")}
+                        onClick={() => { const ds = on ? pr.dias_semana.filter((x) => x !== i + 1) : (pr.dias_semana || []).concat([i + 1]); if (ds.length) setPersoRep({ ...pr, dias_semana: ds }); }}>{d}</button>;
+                    })}
+                  </div>
+                )}
+                {pr.regla === "mensual" && (
+                  <div className="perso-fila">
+                    {opcionesDelMes(fRef).map((o) => {
+                      const on = (pr.modo_mes || "dia") === o.modo_mes && (o.modo_mes !== "dia_semana" || (pr.semana === o.semana && pr.dia_semana === o.dia_semana));
+                      return <button key={o.txt} type="button" className={"perso-u " + (on ? "on" : "")}
+                        onClick={() => { const n = { regla: "mensual", cada: pr.cada }; if (o.modo_mes !== "dia") { n.modo_mes = o.modo_mes; if (o.semana) { n.semana = o.semana; n.dia_semana = o.dia_semana; } } setPersoRep(n); }}>{o.txt}</button>;
+                    })}
+                  </div>
+                )}
+                <div className="perso-fila fin">
+                  <span className="perso-txt">{textoRecurrencia(pr)}</span>
+                  <button type="button" className="btn-chico sec" onClick={() => setPersoRep(null)}>Cancelar</button>
+                  <button type="button" className="btn-chico pri" onClick={() => { const r = { ...pr }; if (!r.cada || r.cada <= 1) delete r.cada; repetir(r); }}>Listo</button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       );
@@ -628,7 +756,7 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
                   <button type="button" className="btn-chico pri" onClick={() => { const v = editDraft.trim(); if (v || (c.imagenes || []).length) editarComentario(c.id, v); setEdit(null); }}>Guardar</button>
                 </div>
               </div>
-            ) : <>{c.txt && <Texto txt={c.txt} P={P} />}<Fotos c={c} urls={urls} onVer={setVisor} /></>}
+            ) : <>{c.txt && <Texto txt={c.txt} P={P} />}<Fotos c={c} urls={urls} onVer={setVisor} /><Docs lista={c.archivos} urls={urls} subiendo={c.subiendo} /></>}
             <div className="com-acc">
               {!esHilo && <button type="button" className="responder" onClick={() => { setResp(c.id); setRespDraft(""); setEdit(null); }}><Svg tam={12} ancho={2}><path d="M9 14 4 9l5-5" /><path d="M4 9h10a6 6 0 0 1 6 6v4" /></Svg>Responder</button>}
               {mio && <>
@@ -690,10 +818,11 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
             </button>
           </div>
           <div className="chips">
-            <button type="button" className={"dato-btn " + (venc ? "venc" : "")} onClick={(ev) => abrirPop(ev, "fecha", tA.id, 470, 330)}>
+            <button type="button" className={"dato-btn " + (venc ? "venc" : "")} onClick={(ev) => abrirPop(ev, "fecha", tA.id, 470, 430)}>
               <IcoCal tam={14} />{tA.fecha ? <span>{fechaLarga(hoy, tA.fecha)}</span> : <span style={{ color: "var(--t3)" }}>Sin fecha</span>}
             </button>
             {tA.fecha && <span className="chip">{calendario(tA.fecha)}</span>}
+            {tA.recurrencia && <button type="button" className="dato-btn rep" onClick={(ev) => abrirPop(ev, "fecha", tA.id, 470, 430)} title="Se repite"><IcoRepite tam={14} /><span>{textoRecurrencia(tA.recurrencia)}</span></button>}
             <span className="edad" title={"Creada el " + fechaCreacion(tA.creadaDia)}>{edad + (edad === 1 ? " día de edad" : " días de edad")}</span>
           </div>
 
@@ -706,6 +835,29 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
             ) : (
               <button type="button" className={"desc " + (tA.desc ? "" : "vacia")} onClick={() => { setEditDesc(true); setDescDraft(tA.desc); }}>{tA.desc || "Agrega una descripción"}</button>
             )}
+            {/* Adjuntos de la descripción: imágenes y documentos, con el clip o arrastrando. */}
+            <div className={"adj" + (arrastraDesc ? " arrastrando" : "")}
+              onDragOver={(ev) => { if ([...ev.dataTransfer.types].includes("Files")) { ev.preventDefault(); setArrastraDesc(true); } }}
+              onDragLeave={() => setArrastraDesc(false)}
+              onDrop={(ev) => { ev.preventDefault(); setArrastraDesc(false); adjuntarDesc(tA.id, ev.dataTransfer.files); }}>
+              {(tA.adjuntos || []).some((a) => esImagen(a.tipo)) && (
+                <div className="fotos">
+                  {tA.adjuntos.filter((a) => esImagen(a.tipo)).map((a) => (
+                    <span key={a.ruta} className="foto">
+                      <button type="button" className="foto-ver" onClick={() => urls[a.ruta] && setVisor(urls[a.ruta])} aria-label="Ver imagen">{urls[a.ruta] ? <img src={urls[a.ruta]} alt="" loading="lazy" /> : <span className="foto-hueco" />}</button>
+                      <button type="button" className="foto-x" aria-label="Quitar imagen" onClick={() => quitarAdjunto(tA, a)}><IcoX tam={11} /></button>
+                    </span>
+                  ))}
+                </div>
+              )}
+              <Docs lista={(tA.adjuntos || []).filter((a) => !esImagen(a.tipo))} urls={urls} onQuitar={(a) => quitarAdjunto(tA, a)} />
+              {subiendoDesc > 0 && <span className="adj-sub">Subiendo {subiendoDesc} {subiendoDesc === 1 ? "archivo" : "archivos"}…</span>}
+              <label className="adj-btn">
+                <Svg tam={13} ancho={1.9}><path d="m20.5 11.5-8.3 8.3a5.2 5.2 0 0 1-7.4-7.4l8.6-8.6a3.5 3.5 0 0 1 4.9 4.9l-8.4 8.4a1.7 1.7 0 0 1-2.5-2.5l7.8-7.8" /></Svg>
+                Adjuntar imagen o documento
+                <input type="file" accept={ACEPTA} multiple hidden onChange={(ev) => { adjuntarDesc(tA.id, ev.target.files); ev.target.value = ""; }} />
+              </label>
+            </div>
           </div>
 
           <div className="seccion">
@@ -818,7 +970,7 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
           const c = urgentes(n.id);
           return (
             <button key={n.id} type="button" className={"nav " + (vista === n.id ? "on" : "")} onClick={() => irA(n.id)}>
-              {n.id === "todas" ? <Svg tam={16} ancho={1.7}><path d="M9 6h11" /><path d="M9 12h11" /><path d="M9 18h11" /><path d="M4.5 6h.01" /><path d="M4.5 12h.01" /><path d="M4.5 18h.01" /></Svg> : <span className="cuadro" style={{ background: n.color }} />}
+              {n.id === "todas" ? <Svg tam={16} ancho={1.7}><path d="M9 6h11" /><path d="M9 12h11" /><path d="M9 18h11" /><path d="M4.5 6h.01" /><path d="M4.5 12h.01" /><path d="M4.5 18h.01" /></Svg> : n.id === "rec" ? <Svg tam={16} ancho={1.7}><path d="M17 2.5 20.5 6 17 9.5" /><path d="M3.5 11V9.5a3.5 3.5 0 0 1 3.5-3.5h13.5" /><path d="M7 21.5 3.5 18 7 14.5" /><path d="M20.5 13v1.5a3.5 3.5 0 0 1-3.5 3.5H3.5" /></Svg> : <span className="cuadro" style={{ background: n.color }} />}
               <span>{n.label}</span>
               {c > 0 && <span className="cnt" title="Hoy y atrasadas">{c}</span>}
             </button>
@@ -863,7 +1015,7 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
             <h1>Resumen</h1>
           </div>
           <div className="bdj-scroll">
-            <Resumen tareas={tareas} P={P} claves={claves.filter((k) => P[k]?.rol !== "Solo prueba")} abrirTarea={abrirTarea} tipDe={tipDe} />
+            <Resumen tareas={tareas} vueltas={vueltas} P={P} claves={claves.filter((k) => P[k]?.rol !== "Solo prueba")} abrirTarea={abrirTarea} tipDe={tipDe} />
           </div>
         </>) : vista === "bandeja" ? (<>
           <div className="head">
@@ -878,7 +1030,8 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
         </>) : (<>
         <div className="head">
           {vistaTipo && <span className="cuadro" style={{ width: 18, height: 18, borderRadius: 5, background: vistaTipo.color }} />}
-          <h1>{vistaTipo ? vistaTipo.label : "Todas"}</h1>
+          {vista === "rec" && <span style={{ color: "var(--ac-ink)", display: "inline-flex" }}><Svg tam={20} ancho={1.7}><path d="M17 2.5 20.5 6 17 9.5" /><path d="M3.5 11V9.5a3.5 3.5 0 0 1 3.5-3.5h13.5" /><path d="M7 21.5 3.5 18 7 14.5" /><path d="M20.5 13v1.5a3.5 3.5 0 0 1-3.5 3.5H3.5" /></Svg></span>}
+          <h1>{vistaTipo ? vistaTipo.label : vista === "rec" ? "Recurrentes" : "Todas"}</h1>
           <span className="sub">{abiertasVista + (abiertasVista === 1 ? " abierta" : " abiertas")}</span>
           <span className="esp" />
           {buscando && <input className="buscar" placeholder="Buscar por nombre" value={busca} autoFocus aria-label="Buscar tareas" onChange={(e) => setBusca(e.target.value)} onKeyDown={(e) => { if (e.key === "Escape") { setBusca(""); setBuscando(false); } }} />}
@@ -966,6 +1119,7 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
         </div>
       )}
 
+      <VersionNueva />
       {toast && <div className="toast" role="status">{toast}</div>}
       {cargando && <span className="cargando">Cargando…</span>}
     </div>

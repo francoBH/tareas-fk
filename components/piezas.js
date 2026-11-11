@@ -75,6 +75,55 @@ export async function achicar(file) {
   } catch { return file; }
 }
 
+/* ── Documentos (11 nov 2026): además de imágenes, PDF, Word, Excel, PowerPoint, texto, CSV,
+   ZIP, video y audio. Los tipos son los mismos que acepta el cajón de la base; lo demás se
+   frena antes de subir con un aviso, para no fallar a mitad de camino. ── */
+export const TIPOS_OK = [
+  "image/png", "image/jpeg", "image/gif", "image/webp", "image/heic", "image/heif",
+  "application/pdf", "text/plain", "text/csv",
+  "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/vnd.ms-powerpoint", "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  "application/zip", "application/x-zip-compressed", "video/mp4", "video/quicktime", "audio/mpeg", "audio/mp4",
+];
+export const ACEPTA = TIPOS_OK.join(",") + ",.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.csv,.txt,.zip,.mp4,.mov,.mp3,.m4a";
+export const PESO_MAX = 25 * 1024 * 1024;
+export const esImagen = (tipo) => /^image\//.test(tipo || "");
+export function pesoTxt(b) {
+  if (!b) return "";
+  if (b < 1024 * 1024) return Math.max(1, Math.round(b / 1024)) + " KB";
+  return (Math.round((b / 1024 / 1024) * 10) / 10).toString().replace(".", ",") + " MB";
+}
+function etiquetaDoc(nombre, tipo) {
+  const ext = ((nombre || "").split(".").pop() || "").toLowerCase();
+  if (tipo === "application/pdf" || ext === "pdf") return ["PDF", "#D93A2B"];
+  if (/word/.test(tipo) || ext === "doc" || ext === "docx") return ["DOC", "#2F74D6"];
+  if (/sheet|excel|csv/.test(tipo) || ["xls", "xlsx", "csv"].includes(ext)) return ["XLS", "#2F9E6E"];
+  if (/presentation|powerpoint/.test(tipo) || ["ppt", "pptx"].includes(ext)) return ["PPT", "#DC682A"];
+  if (/zip/.test(tipo)) return ["ZIP", "#7C8698"];
+  if (/^video/.test(tipo)) return ["VID", "#8a5cf6"];
+  if (/^audio/.test(tipo)) return ["MP3", "#8a5cf6"];
+  return ["TXT", "#7C8698"];
+}
+/* Un documento: su sello de tipo, el nombre y el peso. Se abre en otra pestaña (o se baja). */
+export function Doc({ a, url, onQuitar, subiendo }) {
+  const [et, col] = etiquetaDoc(a.nombre, a.tipo);
+  const cuerpo = (<>
+    <span className="doc-sello" style={{ background: col }}>{et}</span>
+    <span className="doc-txt"><b title={a.nombre}>{a.nombre}</b><span>{subiendo ? "Subiendo…" : pesoTxt(a.peso)}</span></span>
+  </>);
+  return (
+    <span className={"doc" + (subiendo ? " subiendo" : "")}>
+      {url ? <a className="doc-link" href={url} target="_blank" rel="noopener noreferrer" download={a.nombre}>{cuerpo}</a> : <span className="doc-link">{cuerpo}</span>}
+      {onQuitar && <button type="button" className="doc-x" aria-label={"Quitar " + a.nombre} onClick={onQuitar}><IcoX tam={11} /></button>}
+    </span>
+  );
+}
+export function Docs({ lista, urls, onQuitar, subiendo }) {
+  if (!lista || !lista.length) return null;
+  return <div className="docs">{lista.map((a, i) => <Doc key={a.ruta || i} a={a} url={a.ruta ? urls[a.ruta] : null} subiendo={subiendo} onQuitar={onQuitar ? () => onQuitar(a) : null} />)}</div>;
+}
+
 /* Las fotos de un comentario: miniaturas que se abren en grande al tocarlas. */
 export function Fotos({ c, urls, onVer }) {
   const lista = (c.imagenes || []).length ? c.imagenes.map((p, i) => urls[p] || (c.locales || [])[i]) : (c.locales || []);
@@ -97,10 +146,14 @@ export function Composer({ P, claves, placeholder, autoFocus, onEnviar, onCancel
   const [archivos, setArchivos] = useState([]);
   const [arrastrando, setArrastrando] = useState(false);
   const inputRef = useRef(null);
+  const [avisoTipo, setAvisoTipo] = useState("");
   const sumar = (files) => {
-    const imgs = [...files].filter((f) => f.type.startsWith("image/"));
-    if (!imgs.length) return;
-    setArchivos((a) => a.concat(imgs.slice(0, 8 - a.length).map((f) => ({ id: crypto.randomUUID(), file: f, url: URL.createObjectURL(f) }))));
+    const todos = [...files];
+    const ok = todos.filter((f) => TIPOS_OK.includes(f.type) && f.size <= PESO_MAX);
+    if (ok.length < todos.length) setAvisoTipo(todos.some((f) => f.size > PESO_MAX) ? "Hay archivos de más de 25 MB: esos no se suben." : "Ese tipo de archivo no se puede subir. Sirven imágenes, PDF, Word, Excel, PowerPoint, texto, ZIP, video y audio.");
+    else setAvisoTipo("");
+    if (!ok.length) return;
+    setArchivos((a) => a.concat(ok.slice(0, 10 - a.length).map((f) => ({ id: crypto.randomUUID(), file: f, img: esImagen(f.type), url: esImagen(f.type) ? URL.createObjectURL(f) : null }))));
   };
   const enviar = async () => {
     if (!txt.trim() && !archivos.length) return;
@@ -125,9 +178,9 @@ export function Composer({ P, claves, placeholder, autoFocus, onEnviar, onCancel
           ))}
         </div>
       )}
-      {archivos.length > 0 && (
+      {archivos.some((a) => a.img) && (
         <div className="fotos fotos-borrador">
-          {archivos.map((a) => (
+          {archivos.filter((a) => a.img).map((a) => (
             <span key={a.id} className="foto">
               <img src={a.url} alt="" />
               <button type="button" className="foto-x" aria-label="Quitar imagen" onClick={() => setArchivos((xs) => xs.filter((x) => x.id !== a.id))}><IcoX tam={11} /></button>
@@ -135,6 +188,14 @@ export function Composer({ P, claves, placeholder, autoFocus, onEnviar, onCancel
           ))}
         </div>
       )}
+      {archivos.some((a) => !a.img) && (
+        <div className="docs">
+          {archivos.filter((a) => !a.img).map((a) => (
+            <Doc key={a.id} a={{ nombre: a.file.name, tipo: a.file.type, peso: a.file.size }} onQuitar={() => setArchivos((xs) => xs.filter((x) => x.id !== a.id))} />
+          ))}
+        </div>
+      )}
+      {avisoTipo && <span className="comp-aviso">{avisoTipo}</span>}
       <textarea placeholder={placeholder} value={txt} autoFocus={autoFocus} aria-label={placeholder}
         onChange={(e) => setTxt(e.target.value)}
         onPaste={(e) => { const f = [...(e.clipboardData?.files || [])]; if (f.length) { e.preventDefault(); sumar(f); } }}
@@ -143,10 +204,10 @@ export function Composer({ P, claves, placeholder, autoFocus, onEnviar, onCancel
           if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); enviar(); }
         }} />
       <div className="comp-barra">
-        <button type="button" className="eico" onClick={() => inputRef.current?.click()} aria-label="Adjuntar imagen" title="Adjuntar imagen">
+        <button type="button" className="eico" onClick={() => inputRef.current?.click()} aria-label="Adjuntar imagen o documento" title="Adjuntar imagen o documento">
           <Svg ancho={1.8}><path d="m20.5 11.5-8.3 8.3a5.2 5.2 0 0 1-7.4-7.4l8.6-8.6a3.5 3.5 0 0 1 4.9 4.9l-8.4 8.4a1.7 1.7 0 0 1-2.5-2.5l7.8-7.8" /></Svg>
         </button>
-        <input ref={inputRef} type="file" accept="image/*" multiple hidden onChange={(e) => { sumar(e.target.files); e.target.value = ""; }} />
+        <input ref={inputRef} type="file" accept={ACEPTA} multiple hidden onChange={(e) => { sumar(e.target.files); e.target.value = ""; }} />
         <button type="button" className="eico" onClick={() => setTxt((c) => c + (c && !/\s$/.test(c) ? " @" : "@"))} aria-label="Nombrar a alguien">
           <Svg ancho={1.8}><circle cx="12" cy="12" r="4" /><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8" /></Svg>
         </button>

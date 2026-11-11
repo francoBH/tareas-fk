@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Composer, Fotos, Svg, Texto } from "@/components/piezas";
+import { Composer, Docs, Fotos, Svg, Texto } from "@/components/piezas";
 
 /* ════════════════════════════════════════════════════════════════════════════════
    LA BANDEJA DE ENTRADA — copia de la de Blue OS (components/bandeja/BandejaEntrada.tsx
@@ -259,8 +259,9 @@ export default function Bandeja({ items, coms, P, claves, yo, leidas, marcar, en
                       <span className="bdj-com-fecha num">{fechaHora(c.creado)}</span>
                     </header>
                     <div className="bdj-com-cuerpo">
-                      {c.txt ? <Texto txt={c.txt} P={P} /> : !(c.imagenes || []).length && !(c.locales || []).length && <span className="bdj-com-vacio">Sin texto.</span>}
+                      {c.txt ? <Texto txt={c.txt} P={P} /> : !(c.imagenes || []).length && !(c.locales || []).length && !(c.archivos || []).length && <span className="bdj-com-vacio">Sin texto.</span>}
                       <Fotos c={c} urls={urls} onVer={onVer} />
+                      <Docs lista={c.archivos} urls={urls} subiendo={c.subiendo} />
                     </div>
                   </div>
                   {!previo && ultimoDelHilo.get(raizDe(c)) === c.id && (
@@ -323,7 +324,7 @@ export default function Bandeja({ items, coms, P, claves, yo, leidas, marcar, en
               const n = g.ultima, p = P[n.c.autor] || { nombre: n.c.autor, iniciales: "?", color: "#555" };
               const leida = g.todasLeidas;
               const nSin = sinLeerDe(g.filas);
-              const texto = enRenglon(n.c.txt) || ((n.c.imagenes || []).length ? "📷 Imagen" : "");
+              const texto = enRenglon(n.c.txt) || ((n.c.imagenes || []).length ? "Imagen" : (n.c.archivos || []).length ? n.c.archivos[0].nombre : "");
               return (
                 <div key={g.tareaId} id={"bdj-" + g.tareaId}
                   className={"bdj-fila" + (apuntado === g.tareaId ? " activa" : "") + (leida ? " leida" : "")}

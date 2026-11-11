@@ -538,3 +538,50 @@ body{font-family:"Hanken Grotesk",system-ui,sans-serif}
   .rs-tarea{grid-template-columns:16px minmax(0,1fr) auto;row-gap:2px}
   .rs-tarea .rs-tipo,.rs-tarea .caras{display:none}
 }
+
+/* ══ RECURRENTES ══ */
+.hijas.rep{color:var(--ac-ink);border-color:color-mix(in srgb,var(--ac-ink) 30%,transparent)}
+.dato-btn.rep{color:var(--ac-ink)}
+.rep-tit{display:flex;align-items:center;gap:6px;margin:10px 0 2px;padding:8px 10px 2px;border-top:1px solid var(--b1);font-size:12px;font-weight:600;color:var(--t3)}
+.atajos .opt.on{color:var(--ac-ink);font-weight:600}
+.dia.prox{box-shadow:inset 0 0 0 1.5px color-mix(in srgb,var(--ac-ink) 55%,transparent);color:var(--ac-ink)}
+.perso{margin-top:8px;padding:10px;border-radius:10px;background:var(--bg-1);border:1px solid var(--b2);display:flex;flex-direction:column;gap:8px}
+.perso-fila{display:flex;align-items:center;gap:5px;flex-wrap:wrap;font-size:12.5px;color:var(--t2)}
+.perso-fila.fin{justify-content:flex-end;gap:6px}
+.perso-fila input{width:48px;height:28px;border-radius:7px;border:1px solid var(--b2);background:var(--bg-2);padding:0 6px;font-size:13px;outline:none;color:var(--t1)}
+.perso-fila input:focus{border-color:var(--ac)}
+.perso-u,.perso-d{height:28px;padding:0 8px;border-radius:7px;border:1px solid var(--b2) !important;font-size:12px;color:var(--t2)}
+.perso-d{padding:0 6px;min-width:34px}
+.perso-u:hover,.perso-d:hover{background:var(--bg-4)}
+.perso-u.on,.perso-d.on{background:var(--ac-soft);color:var(--t1);border-color:var(--b3) !important}
+.perso-txt{flex:1;font-size:12px;color:var(--ac-ink);font-weight:600}
+
+/* ══ DOCUMENTOS en hilos y descripción ══ */
+.docs{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
+.doc{position:relative;display:inline-flex;max-width:300px;min-width:0}
+.doc-link{display:flex;align-items:center;gap:10px;min-width:0;padding:7px 12px 7px 8px;border-radius:10px;border:1px solid var(--b2);background:var(--bg-1);color:inherit;text-decoration:none;transition:border-color .15s}
+a.doc-link:hover{border-color:var(--b3)}
+.doc.subiendo .doc-link{opacity:.6}
+.doc-sello{flex:none;width:34px;height:34px;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:12px;font-weight:700;letter-spacing:.02em}
+.doc-txt{display:flex;flex-direction:column;min-width:0;line-height:1.3}
+.doc-txt b{font-size:13px;font-weight:600;color:var(--t1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.doc-txt span{font-size:12px;color:var(--t3)}
+.doc-x{position:absolute;top:-6px;right:-6px;width:20px;height:20px;border-radius:50%;background:var(--bg-3) !important;border:1px solid var(--b2) !important;color:var(--t2);display:none;align-items:center;justify-content:center}
+.doc:hover .doc-x,.composer .doc-x{display:flex}
+@media (hover:none){.doc-x{display:flex}}
+.comp-aviso{font-size:12px;color:var(--neg)}
+.adj{display:flex;flex-direction:column;align-items:flex-start;gap:6px;margin-top:8px;padding:6px;border-radius:10px;border:1px dashed transparent;transition:border-color .15s,background .15s}
+.adj.arrastrando{border-color:var(--ac);background:var(--ac-soft)}
+.adj .fotos{margin-top:0}
+.adj-btn{display:inline-flex;align-items:center;gap:7px;height:30px;padding:0 10px;border-radius:8px;font-size:12.5px;color:var(--t3);cursor:pointer}
+.adj-btn:hover{background:var(--bg-4);color:var(--t1)}
+.adj-sub{font-size:12px;color:var(--t3)}
+.foto-ver{width:100%;height:100%;display:block}
+.foto-ver img{width:100%;height:100%;object-fit:cover;display:block}
+
+/* ══ CARTEL DE VERSIÓN NUEVA (como Blue OS) ══ */
+.version-nueva{position:absolute;left:50%;top:16px;transform:translateX(-50%);z-index:1150;display:flex;align-items:center;gap:12px;padding:8px 8px 8px 16px;width:max-content;max-width:calc(100% - 32px);background:var(--bg-3);color:var(--t1);border:1px solid var(--b2);border-left:3px solid var(--ac-ink);border-radius:12px;box-shadow:var(--sh);font-size:13px;animation:pop-entrar .2s ease-out}
+.version-nueva b{font-weight:600}
+.version-nueva span span{color:var(--t2)}
+.version-nueva .vn-x{width:28px;height:28px;border-radius:8px;color:var(--t3);display:flex;align-items:center;justify-content:center}
+.version-nueva .vn-x:hover{background:var(--bg-4);color:var(--t1)}
