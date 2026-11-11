@@ -204,7 +204,8 @@ export default function Bandeja({ items, coms, P, claves, yo, leidas, marcar, en
     /* Se responde en el hilo del último aviso, salvo que se elija otro con «Responder». */
     const raizDe = (c) => (c.padre_id ? c.padre_id : c.id);
     const padre = padreResp || raizDe(gp.ultima.c);
-    const autorPadre = P[delHilo.find((c) => c.id === padre)?.autor]?.nombre?.split(" ")[0];
+    const autorPadreId = delHilo.find((c) => c.id === padre)?.autor;
+    const autorPadre = autorPadreId && autorPadreId !== yo ? P[autorPadreId]?.nombre?.split(" ")[0] : null;
     const idx = posActual() >= 0 ? posActual() + 1 : null;
 
     return (
