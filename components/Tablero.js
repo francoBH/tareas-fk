@@ -541,11 +541,28 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
       let g = "";
       return ESTADOS.map((e) => {
         const tit = e.grupo !== g ? (g = e.grupo, <span key={"t" + e.id} className="pop-tit">{e.grupo}</span>) : null;
-        return [tit, (
+        const opt = (
           <Opt key={e.id} on={actual === e.id && tg !== "lote"} onClick={() => { aplicar(tg, { estado: e.id }); cerrarPop(); }}>
             <IconoEstado estado={e.id} /><span className="opt-est" style={{ color: "var(--st-" + e.id + ")" }}>{e.label.toUpperCase()}</span>
           </Opt>
-        )];
+        );
+        if (e.id !== "sin") return [tit, opt];
+        /* 🔁 «Recurrente» vive en «Por iniciar», debajo de «Sin iniciar» (pedido de Franco, 11 nov):
+           al elegirlo se abre el selector de fecha en «Se repite» para elegir cada cuánto. */
+        const rep = tg === "lote" ? null : valorDe(tg, "recurrencia");
+        const recurrente = (
+          <Opt key="rec" on={!!rep} onClick={() => {
+            if (tg === "lote") { aplicar(tg, { recurrencia: { regla: "semanal" } }); cerrarPop(); avisar("Ahora se repiten cada semana"); return; }
+            if (!rep) aplicar(tg, { recurrencia: { regla: "semanal" }, ...(valorDe(tg, "fecha") ? {} : { fecha: hoy }), ...(actual === "comp" ? { estado: "sin" } : {}) });
+            const root = rootRef.current, W = root ? root.offsetWidth : 1200, H = root ? root.offsetHeight : 800;
+            setCalMes((valorDe(tg, "fecha") || hoy).slice(0, 7));
+            setPop({ ...pop, tipo: "fecha", ancho: 470, left: Math.max(8, Math.min(pop.left, W - 8 - 470)), top: Math.max(8, Math.min(pop.top, H - 8 - 440)) });
+          }}>
+            <span className="ico-rep"><IcoRepite tam={14} /></span><span className="opt-est" style={{ color: "var(--ac-ink)" }}>RECURRENTE</span>
+            {rep && <span className="pista">{textoRecurrencia(rep)}</span>}
+          </Opt>
+        );
+        return [tit, opt, recurrente];
       });
     }
     if (pop.tipo === "prio") {
