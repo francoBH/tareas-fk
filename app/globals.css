@@ -682,3 +682,31 @@ a.doc-link:hover{border-color:var(--b3)}
 .fb-txt{font-size:13px;line-height:1.5;color:var(--t1);white-space:pre-wrap;overflow-wrap:anywhere}
 .fb-resp{font-size:12.5px;line-height:1.45;color:var(--t2);padding:8px 10px;border-radius:8px;background:var(--ac-soft)}
 .fb-resp b{color:var(--ac-ink)}
+
+/* ══ PRIORIDADES FIJADAS (como «Mis tareas» de Blue OS) ══ */
+.ini-pri .ini-h2{display:inline-flex;align-items:center;gap:8px}
+.ini-pri-ico{color:var(--ac-ink);display:inline-flex}
+.ini-pri-vacio{margin:0;font-size:13px;color:var(--t3);line-height:1.5}
+.ini-pri-vacio svg{vertical-align:-2px}
+.pri-lista{display:flex;flex-direction:column}
+.pri-fila{display:grid;grid-template-columns:24px 22px minmax(0,1fr) auto 90px 92px 26px 26px;align-items:center;gap:8px;min-height:42px;padding:0 6px;border-top:1px dotted var(--b2);font-size:13px;cursor:pointer;border-radius:8px}
+.pri-fila:first-child{border-top-color:transparent}
+.pri-fila:hover{background:var(--bg-4)}
+.pri-fila.arrastrando{opacity:.45}
+.pri-n{font-size:12px;font-weight:600;color:var(--t3);text-align:center;font-variant-numeric:tabular-nums}
+.pri-nom{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;color:var(--t1)}
+.pri-fila .cara{box-shadow:none}
+.pri-fecha{font-size:12.5px;color:var(--t2);text-align:center}
+.pri-fecha.venc{color:var(--neg)}
+.pri-prio{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--t2)}
+.pri-grip{width:26px;height:28px;display:inline-flex;align-items:center;justify-content:center;border-radius:6px;color:var(--t4);cursor:grab}
+.pri-grip:hover{background:var(--bg-3);color:var(--t2)}
+.pri-x{width:26px;height:26px;display:inline-flex;align-items:center;justify-content:center;border-radius:6px;color:var(--t4);opacity:0}
+.pri-fila:hover .pri-x{opacity:1}
+.pri-x:hover{color:var(--neg);background:var(--bg-3)}
+.hijas.pin{color:var(--ac-ink);border-color:color-mix(in srgb,var(--ac-ink) 30%,transparent)}
+@media (hover:none){.pri-x{opacity:1}}
+@container ini (max-width: 620px){
+  .pri-fila{grid-template-columns:20px 22px minmax(0,1fr) 70px 26px 26px}
+  .pri-fila .caras,.pri-fila .pri-prio{display:none}
+}

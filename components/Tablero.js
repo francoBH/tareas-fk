@@ -36,6 +36,11 @@ const TIPOS = [
 ];
 const TIEMPOS = [[15, "15 min"], [30, "30 min"], [45, "45 min"], [60, "1 h"], [120, "2 h"], [240, "4 h"], [480, "1 día"]];
 const IcoRepite = ({ tam = 12 }) => <Svg tam={tam} ancho={2}><path d="M17 2.5 20.5 6 17 9.5" /><path d="M3.5 11V9.5a3.5 3.5 0 0 1 3.5-3.5h13.5" /><path d="M7 21.5 3.5 18 7 14.5" /><path d="M20.5 13v1.5a3.5 3.5 0 0 1-3.5 3.5H3.5" /></Svg>;
+const IcoPin = ({ tam = 15, lleno = false }) => (
+  <svg width={tam} height={tam} viewBox="0 0 24 24" fill={lleno ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M9 4h6l-1 6 3 3v2H7v-2l3-3-1-6Z" /><path d="M12 15v6" fill="none" />
+  </svg>
+);
 const RANGO_PRIO = { urgente: 0, alta: 1, media: 2, baja: 3 };
 const estDe = (id) => ESTADOS.find((e) => e.id === id) || ESTADOS[1];
 const priDe = (id) => PRIORIDADES.find((p) => p.id === id) || null;
@@ -99,6 +104,11 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
   const [vueltas, setVueltas] = useState(() => cache?.vueltas || []);
   /* El historial de cambios de cada tarea (lo escribe la base sola). */
   const [historial, setHistorial] = useState(() => cache?.historial || []);
+  /* PRIORIDADES FIJADAS: los ids de MIS tareas fijadas, en su orden (como Blue OS). */
+  const [pines, setPines] = useState(() => cache?.pines || []);
+  const [arrastrandoPin, setArrastrandoPin] = useState(null);
+  const pinesRef = useRef(pines);
+  pinesRef.current = pines;
   const [verCambios, setVerCambios] = useState(true);
   const [persoRep, setPersoRep] = useState(null);
   const [arrastraDesc, setArrastraDesc] = useState(false);
@@ -150,13 +160,15 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
 
   /* ── lectura y tiempo real ── */
   const cargar = useCallback(async () => {
-    const [a, b, l, v, hi] = await Promise.all([
+    const [a, b, l, v, hi, pr] = await Promise.all([
       supabase.from("tareas").select("*").order("creada", { ascending: true }),
       supabase.from("comentarios").select("*").order("creado", { ascending: true }),
       supabase.from("lecturas").select("comentario_id"),
       supabase.from("vueltas").select("*"),
       supabase.from("historial").select("*").order("creado", { ascending: true }),
+      supabase.from("prioridades").select("tarea_id, orden").order("orden", { ascending: true }),
     ]);
+    if (!pr.error) setPines((pr.data || []).map((x) => x.tarea_id));
     if (!v.error) setVueltas(v.data || []);
     if (!hi.error) setHistorial(hi.data || []);
     if (a.error || b.error) { setErrorCarga(true); setCargando(false); return; }
@@ -186,6 +198,10 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
       .on("postgres_changes", { event: "*", schema: "public", table: "comentarios" }, aplicarCambio(setComs))
       .on("postgres_changes", { event: "*", schema: "public", table: "vueltas" }, aplicarCambio(setVueltas))
       .on("postgres_changes", { event: "*", schema: "public", table: "historial" }, aplicarCambio(setHistorial))
+      /* Las prioridades son de cada uno: lo que cambie en otro dispositivo se vuelve a leer. */
+      .on("postgres_changes", { event: "*", schema: "public", table: "prioridades" }, () => {
+        supabase.from("prioridades").select("tarea_id, orden").order("orden", { ascending: true }).then(({ data, error }) => { if (!error) setPines((data || []).map((x) => x.tarea_id)); });
+      })
       /* Lo leído en otro dispositivo (la compu y el celular) se refleja solo. */
       .on("postgres_changes", { event: "*", schema: "public", table: "lecturas" }, (p) => {
         const id = p.eventType === "DELETE" ? p.old?.comentario_id : p.new?.comentario_id;
@@ -209,10 +225,10 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
   /* La copia del navegador se guarda sola, un rato después del último cambio. */
   useEffect(() => {
     const t = setTimeout(() => {
-      try { localStorage.setItem("tf-datos", JSON.stringify({ filas: filas.filter((f) => !String(f.id).startsWith("tmp-")), coms: coms.filter((c) => !String(c.id).startsWith("tmp-") && !c.subiendo), leidas: [...leidas], vueltas, historial: historial.slice(-400) })); } catch {}
+      try { localStorage.setItem("tf-datos", JSON.stringify({ filas: filas.filter((f) => !String(f.id).startsWith("tmp-")), coms: coms.filter((c) => !String(c.id).startsWith("tmp-") && !c.subiendo), leidas: [...leidas], vueltas, historial: historial.slice(-400), pines })); } catch {}
     }, 500);
     return () => clearTimeout(t);
-  }, [filas, coms, leidas, vueltas, historial]);
+  }, [filas, coms, leidas, vueltas, historial, pines]);
 
   /* Las imágenes son privadas: se piden links firmados (valen 7 días) para las que falten. */
   useEffect(() => {
@@ -282,6 +298,14 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
     }
     const db = aDb(cambios);
     setFilas((fs) => fs.map((f) => (ids.includes(f.id) ? { ...f, ...db } : f)));
+    /* Una prioridad que se completa sale sola de la lista: si no, ocuparía uno de los 20 lugares sin verse. */
+    if (cambios.estado === "comp") {
+      const fijadas = ids.filter((id) => pinesRef.current.includes(id));
+      if (fijadas.length) {
+        setPines((xs) => xs.filter((x) => !fijadas.includes(x)));
+        supabase.from("prioridades").delete().eq("persona", yo).in("tarea_id", fijadas).then(() => {});
+      }
+    }
     const { error } = await supabase.from("tareas").update(db).in("id", ids);
     if (error) { avisar("No se pudo guardar. Vuelve a intentar."); cargar(); }
   }, [avisar, cargar, filas, yo]);
@@ -354,6 +378,32 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
     setFilas((fs) => fs.map((f) => (f.id === id ? { ...data, ...f, creada: data.creada } : f)));
   };
 
+  /* ── prioridades fijadas ── */
+  const TOPE_PINES = 20;
+  const guardarOrdenPines = async (ids) => {
+    const { error } = await supabase.from("prioridades").upsert(ids.map((id, i) => ({ persona: yo, tarea_id: id, orden: i })), { onConflict: "persona,tarea_id" });
+    if (error) { avisar("No se pudo guardar el orden."); cargar(); }
+  };
+  const fijar = async (id) => {
+    if (pines.includes(id)) return;
+    if (pines.length >= TOPE_PINES) { avisar("Ya tienes 20 prioridades. Saca una para fijar otra: si son veinte, ya no son prioridades."); return; }
+    const ids = pines.concat([id]);
+    setPines(ids);
+    const { error } = await supabase.from("prioridades").insert({ persona: yo, tarea_id: id, orden: ids.length - 1 });
+    if (error) { setPines((xs) => xs.filter((x) => x !== id)); avisar("No se pudo fijar."); return; }
+    avisar("Fijada en tus prioridades");
+  };
+  const desfijar = async (id) => {
+    setPines((xs) => xs.filter((x) => x !== id));
+    const { error } = await supabase.from("prioridades").delete().eq("persona", yo).eq("tarea_id", id);
+    if (error) { avisar("No se pudo sacar."); cargar(); }
+  };
+  const moverPin = (id, paso) => {
+    const i = pines.indexOf(id), j = i + paso;
+    if (i < 0 || j < 0 || j >= pines.length) return;
+    const ids = pines.slice(); ids.splice(i, 1); ids.splice(j, 0, id);
+    setPines(ids); guardarOrdenPines(ids);
+  };
   const irA = (v) => { setVista(v); setSel({}); setNueva(null); setPop(null); };
   const abrirTarea = (id) => { setAbierta(id); setPop(null); setEditTit(false); setEditDesc(false); setAgregandoSub(false); setResp(null); setEdit(null); setCom(""); };
 
@@ -580,6 +630,56 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
           </div>
         </div>
 
+        {(() => {
+          const lista = pines.map((id) => tareas.find((t) => t.id === id)).filter((t) => t && t.estado !== "comp");
+          const soltar = (destino) => {
+            if (!arrastrandoPin || arrastrandoPin === destino) return;
+            const ids = pines.filter((x) => x !== arrastrandoPin);
+            const j = destino ? ids.indexOf(destino) : ids.length;
+            ids.splice(j < 0 ? ids.length : j, 0, arrastrandoPin);
+            setPines(ids); guardarOrdenPines(ids); setArrastrandoPin(null);
+          };
+          return (
+            <section className="ini-card ini-pri" aria-label="Prioridades">
+              <header className="ini-card-head">
+                <h2 className="ini-h2"><span className="ini-pri-ico"><IcoPin tam={15} lleno /></span>Prioridades</h2>
+                <span className="ini-cuenta">{lista.length ? lista.length + " de " + TOPE_PINES : ""}</span>
+              </header>
+              {!lista.length ? (
+                <p className="ini-pri-vacio">Fija acá lo más importante con el pin <IcoPin tam={12} /> de la tarea o con «Fijar en mis prioridades» del menú «…». Solo las ves tú.</p>
+              ) : (
+                <div className="pri-lista" onDragOver={(e) => { if (arrastrandoPin) e.preventDefault(); }} onDrop={(e) => { e.preventDefault(); soltar(null); }}>
+                  {lista.map((t, i) => {
+                    const pr = priDe(t.prio);
+                    const venc = t.fecha && dias(hoy, t.fecha) < 0;
+                    return (
+                      <div key={t.id} className={"pri-fila" + (arrastrandoPin === t.id ? " arrastrando" : "")}
+                        draggable onDragStart={(e) => { setArrastrandoPin(t.id); e.dataTransfer.effectAllowed = "move"; try { e.dataTransfer.setData("text/plain", t.id); } catch {} }}
+                        onDragEnd={() => setArrastrandoPin(null)}
+                        onDragOver={(e) => { if (arrastrandoPin) e.preventDefault(); }}
+                        onDrop={(e) => { e.preventDefault(); e.stopPropagation(); soltar(t.id); }}
+                        onClick={() => abrirTarea(t.id)}>
+                        <span className="pri-n">{i + 1}</span>
+                        <button type="button" className="ico-est" onClick={(e) => abrirPop(e, "estado", t.id, 230, 320)} aria-label={"Estado: " + estDe(t.estado).label}><IconoEstado estado={t.estado} /></button>
+                        <span className="pri-nom" title={t.nombre}>{t.nombre}</span>
+                        <Caras ids={t.resp} P={P} />
+                        <span className={"pri-fecha" + (venc ? " venc" : "")}>{t.fecha ? fechaRel(hoy, t.fecha) : ""}</span>
+                        <span className="pri-prio"><Bandera prio={t.prio} />{pr ? pr.label : ""}</span>
+                        <button type="button" className="pri-grip" aria-label={"Mover " + t.nombre + " (⌘ + flechas)"} title="Arrastra para ordenar"
+                          onClick={(e) => e.stopPropagation()}
+                          onKeyDown={(e) => { if ((e.metaKey || e.ctrlKey) && (e.key === "ArrowUp" || e.key === "ArrowDown")) { e.preventDefault(); moverPin(t.id, e.key === "ArrowUp" ? -1 : 1); } }}>
+                          <svg width="12" height="16" viewBox="0 0 12 16" fill="currentColor" aria-hidden="true"><circle cx="3" cy="3" r="1.4" /><circle cx="9" cy="3" r="1.4" /><circle cx="3" cy="8" r="1.4" /><circle cx="9" cy="8" r="1.4" /><circle cx="3" cy="13" r="1.4" /><circle cx="9" cy="13" r="1.4" /></svg>
+                        </button>
+                        <button type="button" className="pri-x" onClick={(e) => { e.stopPropagation(); desfijar(t.id); }} aria-label={"Sacar " + t.nombre + " de prioridades"} title="Sacar de prioridades"><IcoX tam={12} /></button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+          );
+        })()}
+
         <section className="ini-card ini-tareas" aria-label="Mis tareas">
           <header className="ini-card-head">
             <h2 className="ini-h2">Mis tareas</h2>
@@ -691,6 +791,7 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
           ) : (<>
             <span className="ntxt" title={t.nombre}>{t.nombre}</span>
             {t.recurrencia && <span className="hijas rep" title={"Se repite: " + textoRecurrencia(t.recurrencia)}><IcoRepite /></span>}
+            {pines.includes(t.id) && <span className="hijas pin" title="En tus prioridades"><IcoPin tam={11} lleno /></span>}
             {t.subs.length > 0 && <span className="hijas" title="Subtareas"><IcoRama />{hechas}/{t.subs.length}</span>}
             {t.nComs > 0 && <span className="hijas" title="Comentarios"><Svg tam={11} ancho={2}><path d="M20 12.5a7.5 7.5 0 0 1-11 6.6L4 20l1-4.4A7.5 7.5 0 1 1 20 12.5Z" /></Svg>{t.nComs}</span>}
             <button type="button" className="lapiz" aria-label="Renombrar" onClick={(e) => { parar(e); setRen(t.id); setRenDraft(t.nombre); setPop(null); }}><IcoLapiz /></button>
@@ -803,6 +904,7 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
       if (!t) return null;
       return (<>
         <Opt onClick={() => abrirTarea(t.id)}>Abrir</Opt>
+        <Opt onClick={() => { setPop(null); pines.includes(t.id) ? desfijar(t.id) : fijar(t.id); }}>{pines.includes(t.id) ? "Sacar de mis prioridades" : "Fijar en mis prioridades"}</Opt>
         <Opt onClick={() => { setRen(t.id); setRenDraft(t.nombre); setPop(null); setAbierta(null); }}>Renombrar</Opt>
         <Opt onClick={async () => {
           setPop(null);
@@ -992,6 +1094,8 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
           <span className="esp" />
           <button type="button" className="icobtn" onClick={() => saltar(-1)} aria-label="Tarea anterior"><Svg ancho={2}><path d="m6 15 6-6 6 6" /></Svg></button>
           <button type="button" className="icobtn" onClick={() => saltar(1)} aria-label="Tarea siguiente"><Svg ancho={2}><path d="m6 9 6 6 6-6" /></Svg></button>
+          <button type="button" className={"icobtn " + (pines.includes(tA.id) ? "sigo" : "")} title={pines.includes(tA.id) ? "Sacar de mis prioridades" : "Fijar en mis prioridades"} aria-label={pines.includes(tA.id) ? "Sacar de mis prioridades" : "Fijar en mis prioridades"}
+            onClick={() => (pines.includes(tA.id) ? desfijar(tA.id) : fijar(tA.id))}><IcoPin lleno={pines.includes(tA.id)} /></button>
           <button type="button" className={"icobtn " + (sigo ? "sigo" : "")} title={sigo ? "Dejar de seguir" : "Seguir esta tarea"} aria-label={sigo ? "Dejar de seguir" : "Seguir esta tarea"}
             onClick={() => { cambiarTarea(tA.id, { seguidores: sigo ? tA.seguidores.filter((x) => x !== yo) : tA.seguidores.concat([yo]) }); avisar(sigo ? "Ya no sigues esta tarea" : "Sigues esta tarea"); }}>
             <svg width="15" height="15" viewBox="0 0 24 24" fill={sigo ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15Z" /><path d="M10 20.5a2.2 2.2 0 0 0 4 0" /></svg>
