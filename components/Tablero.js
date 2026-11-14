@@ -2,11 +2,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import {
-  atajos as atajosDe, calendario, cercania, dias, dow, fechaCreacion, fechaLarga, fechaRel, hace, hoyIso, iso, mas, mesKey, sinTildes, tituloMes,
+  atajos as atajosDe, calendario, cercania, dias, dow, fechaCorta, fechaCreacion, fechaLarga, fechaRel, hace, hoyIso, iso, mas, mesKey, sinTildes, tituloMes,
 } from "@/lib/fechas";
 import { IconoEstado, Bandera, Svg, IcoCal, IcoMas, IcoPuntos, IcoTacho, IcoLapiz, IcoRama, IcoTilde, IcoEnviar, Caret, IcoX, Caras, Texto, achicar, Fotos, Composer, Docs, ACEPTA, TIPOS_OK, PESO_MAX, esImagen } from "@/components/piezas";
 import Bandeja from "@/components/Bandeja";
 import VersionNueva from "@/components/VersionNueva";
+import Feedback from "@/components/Feedback";
 import Resumen, { armarBase, medirRango, minutosDe } from "@/components/Resumen";
 import { ATAJOS_RECURRENCIA, DIAS_SEMANA_CORTO, diaSemanaDe, mismaRecurrencia, opcionesDelMes, siguienteVuelta, textoRecurrencia, vueltasEntre } from "@/lib/recurrencia";
 
@@ -41,6 +42,49 @@ const priDe = (id) => PRIORIDADES.find((p) => p.id === id) || null;
 const tipDe = (id) => TIPOS.find((x) => x.id === id) || null;
 const parar = (e) => { if (e && e.stopPropagation) e.stopPropagation(); };
 
+/* ── HISTORIAL: una línea chica y gris por cambio, entre los comentarios (como Blue OS y ClickUp) ── */
+function textoCambio(h, P) {
+  const nom = (k) => (P[k] ? P[k].nombre.split(" ")[0] : k);
+  const fecha = (f) => (f ? fechaCorta(String(f).slice(0, 10)) : null);
+  const a = h.antes, d = h.despues;
+  switch (h.campo) {
+    case "creada": return ["creó la tarea"];
+    case "estado": return ["cambió el estado", estDe(a).label, estDe(d).label];
+    case "fecha": return !a ? ["puso la fecha", null, fecha(d)] : !d ? ["quitó la fecha", fecha(a)] : ["cambió la fecha", fecha(a), fecha(d)];
+    case "prio": return !d ? ["quitó la prioridad", priDe(a)?.label] : ["cambió la prioridad", priDe(a)?.label || null, priDe(d)?.label];
+    case "tipo": return ["cambió el tipo", tipDe(a)?.label, tipDe(d)?.label];
+    case "nombre": return ["cambió el nombre", a, d];
+    case "recurrencia": return !d ? ["dejó de repetirse"] : ["hizo que se repita", a ? textoRecurrencia(a) : null, textoRecurrencia(d)];
+    case "resp": {
+      const antes = a || [], ahora = d || [];
+      const suma = ahora.filter((x) => !antes.includes(x)).map(nom), saca = antes.filter((x) => !ahora.includes(x)).map(nom);
+      return [[suma.length ? "asignó a " + suma.join(" y ") : "", saca.length ? "sacó a " + saca.join(" y ") : ""].filter(Boolean).join(" · ") || "cambió los responsables"];
+    }
+    default: return ["cambió " + h.campo];
+  }
+}
+function LineaCambio({ it, P, yo }) {
+  let quien, partes, ico;
+  if (it.v) {
+    quien = it.v.por; partes = ["completó una vuelta", null, it.v.vencia ? "vencía " + fechaCorta(String(it.v.vencia).slice(0, 10)) : null]; ico = "rep";
+  } else { quien = it.h.persona; partes = textoCambio(it.h, P); ico = it.h.campo; }
+  const nombre = !quien ? "Alguien" : (P[quien]?.nombre.split(" ")[0] || quien);
+  const [verbo, antes, despues] = partes;
+  return (
+    <div className="act-linea">
+      <span className={"act-ico " + ico}>
+        {ico === "estado" ? <Svg tam={11} ancho={2}><circle cx="12" cy="12" r="7" /></Svg>
+          : ico === "fecha" ? <IcoCal tam={11} />
+          : ico === "rep" || ico === "recurrencia" ? <IcoRepite tam={11} />
+          : ico === "creada" ? <IcoMas tam={11} />
+          : <Svg tam={11} ancho={2}><path d="M4.5 19.5h3.8L19 8.8a2.2 2.2 0 0 0-3.1-3.1L5.2 16.4l-.7 3.1Z" /></Svg>}
+      </span>
+      <span className="act-txt"><b>{nombre}</b> {verbo}{antes && <> <s>{antes}</s></>}{despues && <> → <b className="act-nuevo">{despues}</b></>}</span>
+      <span className="act-hora" title={new Date(it.ts).toLocaleString("es-AR")}>{hace(it.ts)}</span>
+    </div>
+  );
+}
+
 export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
   const P = useMemo(() => Object.fromEntries(personasLista.map((p) => [p.clave, p])), [personasLista]);
   const claves = useMemo(() => personasLista.map((p) => p.clave), [personasLista]);
@@ -53,6 +97,9 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
   const [coms, setComs] = useState(() => cache?.coms || []);
   /* Cada vuelta completada de una recurrente (para el Resumen). */
   const [vueltas, setVueltas] = useState(() => cache?.vueltas || []);
+  /* El historial de cambios de cada tarea (lo escribe la base sola). */
+  const [historial, setHistorial] = useState(() => cache?.historial || []);
+  const [verCambios, setVerCambios] = useState(true);
   const [persoRep, setPersoRep] = useState(null);
   const [arrastraDesc, setArrastraDesc] = useState(false);
   const [subiendoDesc, setSubiendoDesc] = useState(0);
@@ -94,6 +141,8 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
   const [loteBorrar, setLoteBorrar] = useState(false);
   const [toast, setToast] = useState(null);
   const rootRef = useRef(null);
+  const pendientes = useRef(new Map());
+  const [fbAbierto, setFbAbierto] = useState(false);
   const tt = useRef(null);
 
   const salir = () => { try { localStorage.removeItem("tf-datos"); localStorage.removeItem("tf-yo"); } catch {} supabase.auth.signOut(); };
@@ -101,13 +150,15 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
 
   /* ── lectura y tiempo real ── */
   const cargar = useCallback(async () => {
-    const [a, b, l, v] = await Promise.all([
+    const [a, b, l, v, hi] = await Promise.all([
       supabase.from("tareas").select("*").order("creada", { ascending: true }),
       supabase.from("comentarios").select("*").order("creado", { ascending: true }),
       supabase.from("lecturas").select("comentario_id"),
       supabase.from("vueltas").select("*"),
+      supabase.from("historial").select("*").order("creado", { ascending: true }),
     ]);
     if (!v.error) setVueltas(v.data || []);
+    if (!hi.error) setHistorial(hi.data || []);
     if (a.error || b.error) { setErrorCarga(true); setCargando(false); return; }
     setErrorCarga(false);
     setFilas(a.data || []);
@@ -134,6 +185,7 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
       .on("postgres_changes", { event: "*", schema: "public", table: "tareas" }, aplicarCambio(setFilas))
       .on("postgres_changes", { event: "*", schema: "public", table: "comentarios" }, aplicarCambio(setComs))
       .on("postgres_changes", { event: "*", schema: "public", table: "vueltas" }, aplicarCambio(setVueltas))
+      .on("postgres_changes", { event: "*", schema: "public", table: "historial" }, aplicarCambio(setHistorial))
       /* Lo leído en otro dispositivo (la compu y el celular) se refleja solo. */
       .on("postgres_changes", { event: "*", schema: "public", table: "lecturas" }, (p) => {
         const id = p.eventType === "DELETE" ? p.old?.comentario_id : p.new?.comentario_id;
@@ -157,10 +209,10 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
   /* La copia del navegador se guarda sola, un rato después del último cambio. */
   useEffect(() => {
     const t = setTimeout(() => {
-      try { localStorage.setItem("tf-datos", JSON.stringify({ filas: filas.filter((f) => !String(f.id).startsWith("tmp-")), coms: coms.filter((c) => !String(c.id).startsWith("tmp-") && !c.subiendo), leidas: [...leidas], vueltas })); } catch {}
+      try { localStorage.setItem("tf-datos", JSON.stringify({ filas: filas.filter((f) => !String(f.id).startsWith("tmp-")), coms: coms.filter((c) => !String(c.id).startsWith("tmp-") && !c.subiendo), leidas: [...leidas], vueltas, historial: historial.slice(-400) })); } catch {}
     }, 500);
     return () => clearTimeout(t);
-  }, [filas, coms, leidas, vueltas]);
+  }, [filas, coms, leidas, vueltas, historial]);
 
   /* Las imágenes son privadas: se piden links firmados (valen 7 días) para las que falten. */
   useEffect(() => {
@@ -198,6 +250,7 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
     return o;
   };
   const guardar = useCallback(async (ids, cambios) => {
+    await Promise.all(ids.map((id) => pendientes.current.get(id)).filter(Boolean));
     /* 🔁 Una RECURRENTE no se cierra: al completarla pasa a su próxima fecha y vuelve a «Sin
        iniciar», con sus subtareas destildadas (como Blue OS). La vuelta queda anotada. */
     if (cambios.estado === "comp") {
@@ -286,11 +339,19 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
     /* La tarea aparece YA, con un id provisorio, y se cambia por la de la base cuando vuelve. */
     const id = crypto.randomUUID();
     const fila = { id, nombre: n.nombre.trim(), tipo: n.tipo, estado: n.estado, prio: n.prio, resp: n.resp, fecha: n.fecha, creado_por: yo, recurrencia: n.recurrencia || null };
-    setNueva({ ...n, nombre: "" });
-    setFilas((fs) => fs.concat([{ ...fila, creada: new Date().toISOString(), subtareas: [], seguidores: [], descripcion: "" }]));
-    const { data, error } = await supabase.from("tareas").insert(fila).select().single();
-    if (error) { setFilas((fs) => fs.filter((f) => f.id !== id)); avisar("No se pudo crear la tarea."); return; }
-    setFilas((fs) => fs.map((f) => (f.id === id ? data : f)));
+    /* Recién creada se abre ENTERA, con la descripción lista para escribir (pedido de Franco,
+       14 nov 2026): el nombre solo no alcanza para que el otro sepa qué hacer. */
+    setNueva(null);
+    setFilas((fs) => fs.concat([{ ...fila, creada: new Date().toISOString(), subtareas: [], seguidores: [], descripcion: "", adjuntos: [] }]));
+    abrirTarea(id);
+    setEditDesc(true); setDescDraft("");
+    /* Lo que se edite antes de que la base confirme espera a que la tarea exista (ver `guardar`). */
+    const alta = supabase.from("tareas").insert(fila).select().single();
+    pendientes.current.set(id, alta);
+    const { data, error } = await alta;
+    pendientes.current.delete(id);
+    if (error) { setFilas((fs) => fs.filter((f) => f.id !== id)); setAbierta(null); avisar("No se pudo crear la tarea."); return; }
+    setFilas((fs) => fs.map((f) => (f.id === id ? { ...data, ...f, creada: data.creada } : f)));
   };
 
   const irA = (v) => { setVista(v); setSel({}); setNueva(null); setPop(null); };
@@ -772,6 +833,7 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
         </div>
         <span className="psep" />
         <Opt onClick={() => { cambiarTema(); setPop(null); }}>{tema === "claro" ? "Tema oscuro" : "Tema claro"}</Opt>
+        <Opt onClick={() => { setPop(null); setFbAbierto(true); }}>Mandar feedback</Opt>
         <Opt cls="peligro" onClick={salir}>Salir</Opt>
       </>);
     }
@@ -1045,9 +1107,22 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
           </div>
 
           <div className="seccion">
-            <h3>Comentarios</h3>
-            {!tA.coms.length && <span style={{ fontSize: 12.5, color: "var(--t3)" }}>Todavía no hay comentarios. Escribe abajo y usa @ para nombrar al otro.</span>}
-            {tA.coms.map((c) => comentario(c, false))}
+            <div className="act-head">
+              <h3>Actividad</h3>
+              <span className="esp" />
+              <button type="button" className={"act-toggle" + (verCambios ? " on" : "")} onClick={() => setVerCambios((v) => !v)}
+                title={verCambios ? "Esconder los cambios y dejar solo los comentarios" : "Mostrar los cambios de fecha, estado y demás"}>
+                <Svg tam={13} ancho={1.9}><path d="M3 12a9 9 0 1 0 3-6.7L3 8" /><path d="M3 3v5h5" /><path d="M12 7v5l3 2" /></Svg>
+                {verCambios ? "Con cambios" : "Solo comentarios"}
+              </button>
+            </div>
+            {(() => {
+              const cambios = verCambios ? historial.filter((h) => h.tarea_id === tA.id).map((h) => ({ k: "h" + h.id, ts: h.creado, h }))
+                .concat(vueltas.filter((v) => v.tarea_id === tA.id).map((v) => ({ k: "v" + v.id, ts: v.completada, v }))) : [];
+              const items = tA.coms.map((c) => ({ k: c.id, ts: c.creado, c })).concat(cambios).sort((x, y) => String(x.ts).localeCompare(String(y.ts)));
+              if (!items.length) return <span style={{ fontSize: 12.5, color: "var(--t3)" }}>Todavía no hay comentarios. Escribe abajo y usa @ para nombrar al otro.</span>;
+              return items.map((it) => it.c ? comentario(it.c, false) : <LineaCambio key={it.k} it={it} P={P} hoy={hoy} yo={yo} />);
+            })()}
           </div>
         </div>
 
@@ -1125,6 +1200,10 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
           );
         })}
         <div className="side-pie">
+          <button type="button" className="nav fb-nav" onClick={() => setFbAbierto(true)} title="Cuéntanos qué falla o qué te ayudaría">
+            <Svg tam={16} ancho={1.7}><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /><path d="M8 9h8" /><path d="M8 13h5" /></Svg>
+            <span>Feedback</span>
+          </button>
           <div className="yo">
             <span className="cara xg" style={{ background: yoP.color }}>{yoP.iniciales}</span>
             <div><b>{yoP.nombre}</b><span>{yoP.rol || ""}</span></div>
@@ -1271,6 +1350,7 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
       )}
 
       <VersionNueva />
+      {fbAbierto && <Feedback P={P} yo={yo} pantalla={vista} avisar={avisar} onCerrar={() => setFbAbierto(false)} />}
       {toast && <div className="toast" role="status">{toast}</div>}
       {cargando && <span className="cargando">Cargando…</span>}
     </div>
