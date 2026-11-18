@@ -172,6 +172,20 @@ export default function Resumen({ tareas, vueltas = [], P, claves, abrirTarea, t
     return { k, abiertas: mias.filter((t) => t.estado !== "comp"), comp, cumpl: pct(cumpl.length, venc.length), venc: venc.length, atras: mias.filter((t) => t.estado !== "comp" && t.fecha && t.fecha < hoy) };
   }).filter((r) => r.abiertas.length || r.comp.length);
 
+  /* ── TIEMPO DE RESOLUCIÓN por persona (pedido de Franco, 18 nov): desde que se CREA la tarea hasta
+     que se COMPLETA, de las completadas en el período donde esa persona es responsable. Las vueltas
+     de una recurrente no cuentan (no tienen fecha de creación propia). ── */
+  const promedio = (xs) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
+  const resolucion = claves.map((k) => {
+    const con = (mm) => mm.completadas.filter((t) => t.resp.includes(k) && t.creada && t.completada).map((t) => ({ t, d: diasEntre(t.creada, t.completada) }));
+    const ahora = con(m), antes = con(a);
+    const ds = ahora.map((x) => x.d);
+    const tramos = [["Menos de 1 día", (d) => d < 1], ["1 a 3 días", (d) => d >= 1 && d < 3], ["3 a 7 días", (d) => d >= 3 && d < 7], ["Más de 7 días", (d) => d >= 7]]
+      .map(([label, f]) => ({ label, ts: ahora.filter((x) => f(x.d)).map((x) => x.t) }));
+    const lenta = ahora.slice().sort((x, y) => y.d - x.d)[0];
+    return { k, n: ds.length, prom: promedio(ds), med: mediana(ds), promAntes: promedio(antes.map((x) => x.d)), tramos, lenta, todas: ahora.map((x) => x.t) };
+  }).filter((r) => r.n > 0 || base.some((t) => t.resp.includes(r.k) && t.estado !== "comp"));
+
   /* ── el calendario del mes ── */
   const [cy, cm] = mesCal.split("-").map(Number);
   const primero = (new Date(cy, cm - 1, 1).getDay() + 6) % 7;
@@ -325,6 +339,49 @@ export default function Resumen({ tareas, vueltas = [], P, claves, abrirTarea, t
               {sel.vence.map(filaTarea)}
             </div>
           )}
+        </div>
+      </div>
+
+      <div className="rs-card">
+        <div className="rs-card-cab">
+          <h3>Tiempo de resolución<Ayuda txt="Cuánto pasa desde que se crea una tarea hasta que se completa, por persona responsable. Cuenta las tareas completadas en el período elegido. El promedio se compara con el período anterior; la mediana es el tiempo «típico» y no se mueve por una tarea rara." /></h3>
+          <span className="rs-rango">Desde que se crea hasta que se completa</span>
+        </div>
+        {!resolucion.some((r) => r.n) && <span className="rs-vacio-chico">Todavía no hay tareas completadas en este período.</span>}
+        <div className="rs-res">
+          {resolucion.filter((r) => r.n).map((r) => {
+            const p = P[r.k];
+            const topeT = Math.max(1, ...r.tramos.map((x) => x.ts.length));
+            const dif = r.promAntes === null ? null : r.prom - r.promAntes;
+            return (
+              <div key={r.k} className="rs-res-p">
+                <div className="rs-res-cab">
+                  <span className="cara g" style={{ background: p.color }}>{p.iniciales}</span>
+                  <b>{p.nombre}</b>
+                  <span className="rs-res-n">{r.n + (r.n === 1 ? " tarea" : " tareas")}</span>
+                </div>
+                <div className="rs-res-nums">
+                  <button type="button" className="rs-res-num" onClick={() => ver(p.nombre.split(" ")[0] + " · completadas", r.todas)}>
+                    <span>Promedio</span><b>{durTexto(r.prom)}</b>
+                    {dif !== null && Math.abs(dif) >= 0.05 && <em className={dif < 0 ? "bien" : "mal"}>{(dif < 0 ? "−" : "+") + durTexto(Math.abs(dif))} vs antes</em>}
+                  </button>
+                  <div className="rs-res-num"><span>Mediana</span><b>{durTexto(r.med)}</b></div>
+                  {r.lenta && <button type="button" className="rs-res-num" onClick={() => abrirTarea(r.lenta.t.tareaId || r.lenta.t.id)} title={r.lenta.t.nombre}>
+                    <span>La que más tardó</span><b>{durTexto(r.lenta.d)}</b><em className="rs-res-cual">{r.lenta.t.nombre}</em>
+                  </button>}
+                </div>
+                <div className="rs-res-tramos">
+                  {r.tramos.map((x) => (
+                    <button key={x.label} type="button" className="rs-res-tramo" onClick={() => x.ts.length && ver(p.nombre.split(" ")[0] + " · " + x.label.toLowerCase(), x.ts)}>
+                      <span className="rs-res-et">{x.label}</span>
+                      <span className="rs-res-barra"><span style={{ width: (x.ts.length / topeT) * 100 + "%" }} /></span>
+                      <span className="rs-res-c num">{x.ts.length}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
         </div>
       </div>
 

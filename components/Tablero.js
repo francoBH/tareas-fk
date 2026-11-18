@@ -337,6 +337,7 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
       if (top + alto > H - 8) { const arriba = (r.top - rr.top) / z - 4 - alto; top = arriba > 8 ? arriba : Math.max(8, H - 8 - alto); }
     }
     if (tipo === "fecha") setCalMes((valorDe(target, "fecha") || hoy).slice(0, 7));
+    if (tipo === "subfecha") setCalMes(null);
     setPersoRep(null);
     setBorrarConf(false);
     setPop({ tipo, target, left, top, ancho });
@@ -377,6 +378,23 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
     if (error) { setFilas((fs) => fs.filter((f) => f.id !== id)); setAbierta(null); avisar("No se pudo crear la tarea."); return; }
     setFilas((fs) => fs.map((f) => (f.id === id ? { ...data, ...f, creada: data.creada } : f)));
   };
+
+  /* ── SUBTAREAS COMPLETAS (como Blue OS): cada una puede tener responsable y fecha, y cuándo se hizo.
+     Viven en la misma tarea (subtareas jsonb), así que no hace falta otra tabla. ── */
+  const cambiarSub = (tareaId, subId, cambios) => {
+    const t = filas.find((f) => f.id === tareaId);
+    if (!t) return;
+    const subs = (t.subtareas || []).map((y) => {
+      if (y.id !== subId) return y;
+      const n = { ...y, ...cambios };
+      if ("hecha" in cambios) n.completada = cambios.hecha ? new Date().toISOString() : null;
+      return n;
+    });
+    cambiarTarea(tareaId, { subs });
+  };
+  /* Mis subtareas pendientes, de tareas abiertas (para el Inicio). */
+  const misSubs = tareas.filter((t) => t.estado !== "comp").flatMap((t) => t.subs.filter((x) => !x.hecha && x.resp === yo).map((x) => ({ ...x, tarea: t })))
+    .sort((a, b) => (a.fecha || "9999").localeCompare(b.fecha || "9999"));
 
   /* ── prioridades fijadas ── */
   const TOPE_PINES = 20;
@@ -680,6 +698,25 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
           );
         })()}
 
+        {misSubs.length > 0 && (
+          <section className="ini-card ini-pri" aria-label="Mis subtareas">
+            <header className="ini-card-head">
+              <h2 className="ini-h2"><span className="ini-pri-ico"><IcoRama tam={14} /></span>Mis subtareas</h2>
+              <span className="ini-cuenta">{misSubs.length + (misSubs.length === 1 ? " pendiente" : " pendientes")}</span>
+            </header>
+            <div className="pri-lista">
+              {misSubs.map((x) => (
+                <div key={x.tarea.id + x.id} className="pri-fila sub-ini" onClick={() => abrirTarea(x.tarea.id)}>
+                  <button type="button" className="ico-est" aria-label="Marcar subtarea hecha" title="Marcar hecha"
+                    onClick={(e) => { e.stopPropagation(); cambiarSub(x.tarea.id, x.id, { hecha: true }); avisar("Subtarea hecha"); }}><IconoEstado estado="sin" /></button>
+                  <span className="pri-nom" title={x.nombre}>{x.nombre}<span className="sub-madre">{x.tarea.nombre}</span></span>
+                  <span className={"pri-fecha" + (x.fecha && x.fecha < hoy ? " venc" : "")}>{x.fecha ? fechaRel(hoy, x.fecha) : ""}</span>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
         <section className="ini-card ini-tareas" aria-label="Mis tareas">
           <header className="ini-card-head">
             <h2 className="ini-h2">Mis tareas</h2>
@@ -873,6 +910,46 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
     if (pop.tipo === "tipo") {
       const actual = valorDe(tg, "tipo");
       return TIPOS.map((x) => <Opt key={x.id} on={actual === x.id && tg !== "lote"} onClick={() => { aplicar(tg, { tipo: x.id }); cerrarPop(); }}><span className="cuadro" style={{ background: x.color }} />{x.largo}</Opt>);
+    }
+    if (pop.tipo === "subresp" || pop.tipo === "subfecha") {
+      const [tid, sid] = tg.split("|");
+      const sub = (filas.find((f) => f.id === tid)?.subtareas || []).find((y) => y.id === sid);
+      if (!sub) return null;
+      if (pop.tipo === "subresp") return (<>
+        <span className="pop-tit">Responsable de la subtarea</span>
+        {claves.map((id) => (
+          <Opt key={id} on={sub.resp === id} onClick={() => { cambiarSub(tid, sid, { resp: sub.resp === id ? null : id }); cerrarPop(); }}>
+            <span className="cara g" style={{ background: P[id].color }}>{P[id].iniciales}</span>{P[id].nombre}
+          </Opt>
+        ))}
+      </>);
+      const poner = (f) => { cambiarSub(tid, sid, { fecha: f }); cerrarPop(); };
+      const mes = calMes || (sub.fecha || hoy).slice(0, 7);
+      const yy = Number(mes.slice(0, 4)), mm = Number(mes.slice(5, 7));
+      const primero = (new Date(yy, mm - 1, 1).getDay() + 6) % 7;
+      const inicio = iso(new Date(yy, mm - 1, 1 - primero));
+      const diasMes = [];
+      for (let i = 0; i < 42; i++) { const f = mas(inicio, i); if (i >= 35 && f.slice(0, 7) !== mes) break; diasMes.push(f); }
+      const mover = (k) => { const x = new Date(yy, mm - 1 + k, 1); setCalMes(mesKey(x.getFullYear(), x.getMonth() + 1)); };
+      return (
+        <div className="fecha-pop">
+          <div className="atajos">
+            {atajosDe(hoy).map(([l, pi, f]) => <button key={l} type="button" className="opt" onClick={() => poner(f)}>{l}<span className="pista">{pi}</span></button>)}
+            <button type="button" className="quitar" onClick={() => poner(null)}>Quitar fecha</button>
+          </div>
+          <div className="calen">
+            <div className="calen-head">
+              <span>{tituloMes(yy, mm)}</span><span className="esp" />
+              <button type="button" className="flecha" onClick={() => mover(-1)} aria-label="Mes anterior"><Svg tam={14} ancho={2}><path d="m15 6-6 6 6 6" /></Svg></button>
+              <button type="button" className="flecha" onClick={() => mover(1)} aria-label="Mes siguiente"><Svg tam={14} ancho={2}><path d="m9 6 6 6-6 6" /></Svg></button>
+            </div>
+            <div className="dias">
+              {["L", "M", "M", "J", "V", "S", "D"].map((d, i) => <span key={i} className="dsem">{d}</span>)}
+              {diasMes.map((f) => <button key={f} type="button" className={["dia", f.slice(0, 7) !== mes ? "fuera" : "", f === hoy ? "hoy" : "", f === sub.fecha ? "sel" : ""].join(" ")} onClick={() => poner(f)}>{Number(f.slice(8))}</button>)}
+            </div>
+          </div>
+        </div>
+      );
     }
     if (pop.tipo === "resp") {
       const actual = valorDe(tg, "resp") || [];
@@ -1184,11 +1261,21 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
                 {tA.subs.map((x) => (
                   <div key={x.id} className="sub-fila">
                     <button type="button" className="ico-est" aria-label="Marcar subtarea"
-                      onClick={() => cambiarTarea(tA.id, { subs: tA.subs.map((y) => (y.id === x.id ? { ...y, hecha: !y.hecha } : y)) })}>
+                      onClick={() => cambiarSub(tA.id, x.id, { hecha: !x.hecha })}>
                       <IconoEstado estado={x.hecha ? "comp" : "sin"} />
                     </button>
                     <span className={"sub-txt " + (x.hecha ? "hecha" : "")}>{x.nombre}</span>
-                    <button type="button" className="eico x" aria-label="Borrar subtarea" onClick={() => cambiarTarea(tA.id, { subs: tA.subs.filter((y) => y.id !== x.id) })}><IcoTacho tam={13} /></button>
+                    <span className="esp" />
+                    <button type="button" className={"sub-dato " + (x.fecha ? "puesto" : "") + (x.fecha && !x.hecha && x.fecha < hoy ? " venc" : "")}
+                      onClick={(ev) => abrirPop(ev, "subfecha", tA.id + "|" + x.id, 470, 330)} title="Fecha de la subtarea">
+                      <IcoCal tam={12} />{x.fecha ? fechaRel(hoy, x.fecha) : ""}
+                    </button>
+                    <button type="button" className={"sub-dato " + (x.resp ? "puesto" : "")}
+                      onClick={(ev) => abrirPop(ev, "subresp", tA.id + "|" + x.id, 220, 160)} title="Responsable de la subtarea">
+                      {x.resp && P[x.resp] ? <span className="cara" style={{ background: P[x.resp].color }} title={P[x.resp].nombre}>{P[x.resp].iniciales}</span>
+                        : <Svg tam={14} ancho={1.7}><circle cx="10" cy="8" r="3.5" /><path d="M3.5 19.5a6.5 6.5 0 0 1 13 0" /><path d="M19 8v6" /><path d="M16 11h6" /></Svg>}
+                    </button>
+                    <button type="button" className="eico x sub-borrar" aria-label="Borrar subtarea" onClick={() => cambiarTarea(tA.id, { subs: tA.subs.filter((y) => y.id !== x.id) })}><IcoTacho tam={13} /></button>
                   </div>
                 ))}
                 {agregandoSub && (
@@ -1201,7 +1288,7 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
                       ev.preventDefault();
                       const v = subDraft.trim();
                       if (!v) return;
-                      cambiarTarea(tA.id, { subs: tA.subs.concat([{ id: crypto.randomUUID(), nombre: v, hecha: false }]) });
+                      cambiarTarea(tA.id, { subs: tA.subs.concat([{ id: crypto.randomUUID(), nombre: v, hecha: false, resp: null, fecha: null, creada: new Date().toISOString() }]) });
                       setSubDraft("");
                     }} />
                 )}
