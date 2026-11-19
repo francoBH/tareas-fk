@@ -54,10 +54,149 @@ export function Caras({ ids, P, grande }) {
 
 /* Separa el texto en partes y marca las menciones a una persona. */
 export function Texto({ txt, P }) {
-  const nombres = Object.values(P).map((p) => "@" + p.nombre);
-  if (!nombres.length) return <span className="com-txt">{txt}</span>;
-  const re = new RegExp("(" + nombres.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|") + ")", "g");
-  return <span className="com-txt">{String(txt).split(re).filter(Boolean).map((p, i) => <span key={i} className={nombres.includes(p) ? "mencion" : ""}>{p}</span>)}</span>;
+  return <Formato txt={txt} P={P} />;
+}
+
+/* ══ TEXTO CON FORMATO (como Blue OS): se guarda como texto simple y se dibuja con formato.
+   **negrita** · _cursiva_ · ~~tachado~~ · líneas que empiezan con «- » (viñetas) o «1. »
+   (numeradas) · links que empiezan con http · @Nombre de alguien del equipo.
+   Se dibuja con elementos de React, nunca con HTML crudo: lo que alguien escribe no puede
+   meter código en la página. ══ */
+function enLinea(txt, P, k0) {
+  const nombres = Object.values(P || {}).map((p) => "@" + p.nombre).sort((a, b) => b.length - a.length);
+  const esc = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const partes = ["\\*\\*[^*\\n]+?\\*\\*", "~~[^~\\n]+?~~", "(?<![\\w])_[^_\\n]+?_(?![\\w])", "https?:\\/\\/[^\\s<]+[^\\s<.,;:!?)\\]]"].concat(nombres.map(esc));
+  const re = new RegExp("(" + partes.join("|") + ")", "g");
+  const out = [];
+  let i = 0, m, k = 0;
+  while ((m = re.exec(txt))) {
+    if (m.index > i) out.push(txt.slice(i, m.index));
+    const t = m[0], key = k0 + "-" + k++;
+    if (t.startsWith("**")) out.push(<b key={key}>{enLinea(t.slice(2, -2), P, key)}</b>);
+    else if (t.startsWith("~~")) out.push(<s key={key}>{enLinea(t.slice(2, -2), P, key)}</s>);
+    else if (t.startsWith("_")) out.push(<i key={key}>{enLinea(t.slice(1, -1), P, key)}</i>);
+    else if (t.startsWith("http")) out.push(<a key={key} href={t} target="_blank" rel="noopener noreferrer" className="fmt-link" onClick={(e) => e.stopPropagation()}>{t.replace(/^https?:\/\/(www\.)?/, "").slice(0, 60)}</a>);
+    else out.push(<span key={key} className="mencion">{t}</span>);
+    i = m.index + t.length;
+  }
+  if (i < txt.length) out.push(txt.slice(i));
+  return out;
+}
+export function Formato({ txt, P, className = "com-txt" }) {
+  const lineas = String(txt || "").split("\n");
+  const bloques = [];
+  lineas.forEach((l, n) => {
+    const vi = /^\s*[-*•]\s+(.*)$/.exec(l), nu = /^\s*(\d+)[.)]\s+(.*)$/.exec(l);
+    const ult = bloques[bloques.length - 1];
+    if (vi) { if (ult && ult.t === "ul") ult.items.push(vi[1]); else bloques.push({ t: "ul", items: [vi[1]] }); }
+    else if (nu) { if (ult && ult.t === "ol") ult.items.push(nu[2]); else bloques.push({ t: "ol", start: Number(nu[1]), items: [nu[2]] }); }
+    else bloques.push({ t: "p", txt: l, n });
+  });
+  return (
+    <div className={className + " fmt"}>
+      {bloques.map((b, i) => b.t === "ul" ? <ul key={i}>{b.items.map((x, j) => <li key={j}>{enLinea(x, P, i + "." + j)}</li>)}</ul>
+        : b.t === "ol" ? <ol key={i} start={b.start}>{b.items.map((x, j) => <li key={j}>{enLinea(x, P, i + "." + j)}</li>)}</ol>
+        : b.txt.trim() ? <p key={i}>{enLinea(b.txt, P, String(i))}</p> : <p key={i} className="fmt-vacia">&nbsp;</p>)}
+    </div>
+  );
+}
+
+/* ══ EL EDITOR: la misma barra de formato y los mismos atajos para la descripción y el hilo ══
+   ⌘B negrita · ⌘I cursiva · ⌘⇧X tachado · ⌘K link · Enter dentro de una lista sigue la lista. */
+export function usarEditor(txt, setTxt) {
+  const ref = useRef(null);
+  const reemplazar = (a, b, nuevo, selA, selB) => {
+    const v = ref.current ? ref.current.value : txt;
+    const n = v.slice(0, a) + nuevo + v.slice(b);
+    setTxt(n);
+    requestAnimationFrame(() => { const el = ref.current; if (el) { el.focus(); el.setSelectionRange(selA, selB); } });
+  };
+  const envolver = (marca) => {
+    const el = ref.current; if (!el) return;
+    const a = el.selectionStart, b = el.selectionEnd, v = el.value, sel = v.slice(a, b);
+    if (sel.startsWith(marca) && sel.endsWith(marca) && sel.length >= marca.length * 2) { reemplazar(a, b, sel.slice(marca.length, -marca.length), a, b - marca.length * 2); return; }
+    reemplazar(a, b, marca + (sel || "texto") + marca, a + marca.length, a + marca.length + (sel || "texto").length);
+  };
+  const lista = (tipo) => {
+    const el = ref.current; if (!el) return;
+    const v = el.value, a = v.lastIndexOf("\n", el.selectionStart - 1) + 1;
+    let b = v.indexOf("\n", el.selectionEnd); if (b < 0) b = v.length;
+    const ls = v.slice(a, b).split("\n");
+    const yaEs = ls.every((l) => (tipo === "ul" ? /^\s*[-*•]\s/ : /^\s*\d+[.)]\s/).test(l));
+    const nuevo = ls.map((l, i) => {
+      const limpia = l.replace(/^\s*([-*•]|\d+[.)])\s+/, "");
+      return yaEs ? limpia : (tipo === "ul" ? "- " : (i + 1) + ". ") + limpia;
+    }).join("\n");
+    reemplazar(a, b, nuevo, a + nuevo.length, a + nuevo.length);
+  };
+  const link = () => {
+    const el = ref.current; if (!el) return;
+    const a = el.selectionStart, b = el.selectionEnd, sel = el.value.slice(a, b);
+    const ins = /^https?:\/\//.test(sel) ? sel : "https://";
+    reemplazar(a, b, ins, a + ins.length, a + ins.length);
+  };
+  const arroba = () => {
+    const el = ref.current; const v = el ? el.value : txt; const a = el ? el.selectionStart : v.length;
+    const ins = (a > 0 && !/\s/.test(v[a - 1]) ? " @" : "@");
+    reemplazar(a, el ? el.selectionEnd : a, ins, a + ins.length, a + ins.length);
+  };
+  /* Devuelve true si la tecla ya la usó el editor. */
+  const teclas = (e) => {
+    const mod = e.metaKey || e.ctrlKey;
+    if (mod && !e.shiftKey && e.key.toLowerCase() === "b") { e.preventDefault(); envolver("**"); return true; }
+    if (mod && !e.shiftKey && e.key.toLowerCase() === "i") { e.preventDefault(); envolver("_"); return true; }
+    if (mod && e.shiftKey && e.key.toLowerCase() === "x") { e.preventDefault(); envolver("~~"); return true; }
+    if (mod && e.key.toLowerCase() === "k") { e.preventDefault(); link(); return true; }
+    if (e.key === "Enter" && e.shiftKey === false && !mod) {
+      const el = ref.current; if (!el || el.selectionStart !== el.selectionEnd) return false;
+      const v = el.value, ini = v.lastIndexOf("\n", el.selectionStart - 1) + 1, linea = v.slice(ini, el.selectionStart);
+      const vi = /^(\s*[-*•]\s+)(.*)$/.exec(linea), nu = /^(\s*)(\d+)([.)]\s+)(.*)$/.exec(linea);
+      if (!vi && !nu) return false;
+      e.preventDefault();
+      if ((vi && !vi[2].trim()) || (nu && !nu[4].trim())) { reemplazar(ini, el.selectionStart, "", ini, ini); return true; }
+      const sig = vi ? vi[1] : nu[1] + (Number(nu[2]) + 1) + nu[3];
+      reemplazar(el.selectionStart, el.selectionStart, "\n" + sig, el.selectionStart + 1 + sig.length, el.selectionStart + 1 + sig.length);
+      return true;
+    }
+    return false;
+  };
+  return { ref, envolver, lista, link, arroba, teclas };
+}
+export function BarraFormato({ ed, conArroba = true }) {
+  const B = ({ t, on, children }) => <button type="button" className="fmt-btn" title={t} aria-label={t} onMouseDown={(e) => e.preventDefault()} onClick={on}>{children}</button>;
+  return (
+    <span className="fmt-barra">
+      <B t="Negrita · ⌘B" on={() => ed.envolver("**")}><b>B</b></B>
+      <B t="Cursiva · ⌘I" on={() => ed.envolver("_")}><i style={{ fontFamily: "Georgia, serif" }}>I</i></B>
+      <B t="Tachado · ⌘⇧X" on={() => ed.envolver("~~")}><s>S</s></B>
+      <span className="fmt-sep" />
+      <B t="Viñetas" on={() => ed.lista("ul")}><Svg tam={15} ancho={1.8}><path d="M9 6h11" /><path d="M9 12h11" /><path d="M9 18h11" /><circle cx="4.5" cy="6" r=".9" fill="currentColor" /><circle cx="4.5" cy="12" r=".9" fill="currentColor" /><circle cx="4.5" cy="18" r=".9" fill="currentColor" /></Svg></B>
+      <B t="Lista numerada" on={() => ed.lista("ol")}><Svg tam={15} ancho={1.8}><path d="M10 6h10" /><path d="M10 12h10" /><path d="M10 18h10" /><path d="M4 5h1v4" /><path d="M4 9h2" /><path d="M6 18H4c0-1 2-2 2-3s-1-1.5-2-1" /></Svg></B>
+      <B t="Link · ⌘K" on={ed.link}><Svg tam={15} ancho={1.8}><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7" /><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7" /></Svg></B>
+      {conArroba && <B t="Nombrar a alguien" on={ed.arroba}><Svg tam={15} ancho={1.8}><circle cx="12" cy="12" r="4" /><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8" /></Svg></B>}
+    </span>
+  );
+}
+/* Las sugerencias de @: la persona escribe «@Ka» y elige a Katherine. */
+export function Sugerir({ txt, setTxt, P, claves, edRef }) {
+  const el = edRef?.current;
+  const hasta = el && document.activeElement === el ? el.selectionStart : txt.length;
+  const m = /@([^\s@]*)$/.exec(txt.slice(0, hasta));
+  const lista = m ? claves.map((k) => P[k]).filter((p) => p && sinTildes(p.nombre).includes(sinTildes(m[1]))) : [];
+  if (!lista.length) return null;
+  return (
+    <div className="sugerir">
+      {lista.map((p) => (
+        <button key={p.clave} type="button" className="opt" onMouseDown={(e) => e.preventDefault()} onClick={() => {
+          const ini = hasta - m[0].length, ins = "@" + p.nombre + " ";
+          setTxt(txt.slice(0, ini) + ins + txt.slice(hasta));
+          requestAnimationFrame(() => { if (el) { el.focus(); el.setSelectionRange(ini + ins.length, ini + ins.length); } });
+        }}>
+          <span className="cara" style={{ background: p.color }}>{p.iniciales}</span>{p.nombre}
+        </button>
+      ))}
+    </div>
+  );
 }
 
 /* Achica las fotos grandes antes de subirlas (una foto de celular pesa 3–6 MB; así queda en
@@ -162,22 +301,13 @@ export function Composer({ P, claves, placeholder, autoFocus, onEnviar, onCancel
     const ok = await onEnviar(t, a);
     if (!ok) { setTxt(t); setArchivos(a); }
   };
-  const m = /@([^\s@]*)$/.exec(txt);
-  const sugerir = m ? claves.map((k) => P[k]).filter((p) => sinTildes(p.nombre).includes(sinTildes(m[1]))) : [];
+  const ed = usarEditor(txt, setTxt);
   return (
     <div className={"composer" + (arrastrando ? " arrastrando" : "")}
       onDragOver={(e) => { if ([...e.dataTransfer.types].includes("Files")) { e.preventDefault(); setArrastrando(true); } }}
       onDragLeave={() => setArrastrando(false)}
       onDrop={(e) => { e.preventDefault(); setArrastrando(false); sumar(e.dataTransfer.files); }}>
-      {sugerir.length > 0 && (
-        <div className="sugerir">
-          {sugerir.map((p) => (
-            <button key={p.clave} type="button" className="opt" onClick={() => setTxt((c) => c.replace(/@([^\s@]*)$/, "@" + p.nombre + " "))}>
-              <span className="cara" style={{ background: p.color }}>{p.iniciales}</span>{p.nombre}
-            </button>
-          ))}
-        </div>
-      )}
+      <Sugerir txt={txt} setTxt={setTxt} P={P} claves={claves} edRef={ed.ref} />
       {archivos.some((a) => a.img) && (
         <div className="fotos fotos-borrador">
           {archivos.filter((a) => a.img).map((a) => (
@@ -196,11 +326,12 @@ export function Composer({ P, claves, placeholder, autoFocus, onEnviar, onCancel
         </div>
       )}
       {avisoTipo && <span className="comp-aviso">{avisoTipo}</span>}
-      <textarea placeholder={placeholder} value={txt} autoFocus={autoFocus} aria-label={placeholder}
+      <textarea ref={ed.ref} placeholder={placeholder} value={txt} autoFocus={autoFocus} aria-label={placeholder}
         onChange={(e) => setTxt(e.target.value)}
         onPaste={(e) => { const f = [...(e.clipboardData?.files || [])]; if (f.length) { e.preventDefault(); sumar(f); } }}
         onKeyDown={(e) => {
           if (e.key === "Escape" && onCancelar) { e.preventDefault(); onCancelar(); }
+          if (ed.teclas(e)) return;
           if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); enviar(); }
         }} />
       <div className="comp-barra">
@@ -208,9 +339,7 @@ export function Composer({ P, claves, placeholder, autoFocus, onEnviar, onCancel
           <Svg ancho={1.8}><path d="m20.5 11.5-8.3 8.3a5.2 5.2 0 0 1-7.4-7.4l8.6-8.6a3.5 3.5 0 0 1 4.9 4.9l-8.4 8.4a1.7 1.7 0 0 1-2.5-2.5l7.8-7.8" /></Svg>
         </button>
         <input ref={inputRef} type="file" accept={ACEPTA} multiple hidden onChange={(e) => { sumar(e.target.files); e.target.value = ""; }} />
-        <button type="button" className="eico" onClick={() => setTxt((c) => c + (c && !/\s$/.test(c) ? " @" : "@"))} aria-label="Nombrar a alguien">
-          <Svg ancho={1.8}><circle cx="12" cy="12" r="4" /><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8" /></Svg>
-        </button>
+        <BarraFormato ed={ed} />
         <span className="esp" />
         {conCancelar && <button type="button" className="btn-chico sec" onClick={onCancelar}>Cancelar</button>}
         <button type="button" className="enviar" disabled={!txt.trim() && !archivos.length} aria-label="Enviar" onClick={enviar}><IcoEnviar /></button>

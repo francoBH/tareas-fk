@@ -45,7 +45,9 @@ function fechaHora(ts) {
   const d = new Date(ts);
   return d.toLocaleDateString("es-AR", { day: "numeric", month: "short" }) + " · " + d.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" });
 }
-const enRenglon = (t) => String(t || "").replace(/\s+/g, " ").trim();
+/* En una línea y sin las marcas de formato (**, ~~, _, viñetas). */
+const enRenglon = (t) => String(t || "").replace(/\*\*(.+?)\*\*/g, "$1").replace(/~~(.+?)~~/g, "$1").replace(/(^|[^\w])_(.+?)_(?!\w)/g, "$1$2")
+  .replace(/^\s*([-*•]|\d+[.)])\s+/gm, "").replace(/\s+/g, " ").trim();
 
 function Pill({ activo, onClick, children, badge }) {
   return (

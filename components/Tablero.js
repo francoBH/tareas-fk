@@ -4,7 +4,7 @@ import { supabase } from "@/lib/supabase";
 import {
   atajos as atajosDe, calendario, cercania, dias, dow, fechaCorta, fechaCreacion, fechaLarga, fechaRel, hace, hoyIso, iso, mas, mesKey, sinTildes, tituloMes,
 } from "@/lib/fechas";
-import { IconoEstado, Bandera, Svg, IcoCal, IcoMas, IcoPuntos, IcoTacho, IcoLapiz, IcoRama, IcoTilde, IcoEnviar, Caret, IcoX, Caras, Texto, achicar, Fotos, Composer, Docs, ACEPTA, TIPOS_OK, PESO_MAX, esImagen } from "@/components/piezas";
+import { IconoEstado, Bandera, Svg, IcoCal, IcoMas, IcoPuntos, IcoTacho, IcoLapiz, IcoRama, IcoTilde, IcoEnviar, Caret, IcoX, Caras, Texto, achicar, Fotos, Composer, Docs, Formato, BarraFormato, Sugerir, usarEditor, ACEPTA, TIPOS_OK, PESO_MAX, esImagen } from "@/components/piezas";
 import Bandeja from "@/components/Bandeja";
 import VersionNueva from "@/components/VersionNueva";
 import Feedback from "@/components/Feedback";
@@ -86,6 +86,25 @@ function LineaCambio({ it, P, yo }) {
       </span>
       <span className="act-txt"><b>{nombre}</b> {verbo}{antes && <> <s>{antes}</s></>}{despues && <> → <b className="act-nuevo">{despues}</b></>}</span>
       <span className="act-hora" title={new Date(it.ts).toLocaleString("es-AR")}>{hace(it.ts)}</span>
+    </div>
+  );
+}
+
+/* La descripción con la barra de formato. Se guarda al salir del campo (como antes) o con ⌘Enter. */
+function DescEditor({ valor, setValor, P, claves, onGuardar, onCancelar }) {
+  const ed = usarEditor(valor, setValor);
+  const caja = useRef(null);
+  return (
+    <div className="desc-ed" ref={caja} onBlur={(e) => { if (!caja.current?.contains(e.relatedTarget)) onGuardar(); }}>
+      <Sugerir txt={valor} setTxt={setValor} P={P} claves={claves} edRef={ed.ref} />
+      <div className="desc-barra"><BarraFormato ed={ed} /><span className="desc-ayuda">⌘Enter para guardar</span></div>
+      <textarea ref={ed.ref} className="desc-campo" value={valor} autoFocus placeholder="Qué hay que hacer y cómo se sabe que quedó" aria-label="Descripción"
+        onChange={(e) => setValor(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") { e.preventDefault(); onCancelar(); return; }
+          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); ed.ref.current?.blur(); return; }
+          ed.teclas(e);
+        }} />
     </div>
   );
 }
@@ -1216,11 +1235,15 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
           <div className="seccion">
             <h3>Descripción</h3>
             {editDesc ? (
-              <textarea className="desc-campo" value={descDraft} autoFocus placeholder="Qué hay que hacer y cómo se sabe que quedó" aria-label="Descripción"
-                onChange={(ev) => setDescDraft(ev.target.value)}
-                onBlur={() => { if (descDraft.trim() !== tA.desc) cambiarTarea(tA.id, { desc: descDraft.trim() }); setEditDesc(false); }} />
+              <DescEditor valor={descDraft} setValor={setDescDraft} P={P} claves={claves}
+                onGuardar={() => { if (descDraft.trim() !== tA.desc) cambiarTarea(tA.id, { desc: descDraft.trim() }); setEditDesc(false); }}
+                onCancelar={() => setEditDesc(false)} />
             ) : (
-              <button type="button" className={"desc " + (tA.desc ? "" : "vacia")} onClick={() => { setEditDesc(true); setDescDraft(tA.desc); }}>{tA.desc || "Agrega una descripción"}</button>
+              <div className={"desc " + (tA.desc ? "" : "vacia")} role="button" tabIndex={0} title="Tocar para editar"
+                onClick={() => { setEditDesc(true); setDescDraft(tA.desc); }}
+                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); setEditDesc(true); setDescDraft(tA.desc); } }}>
+                {tA.desc ? <Formato txt={tA.desc} P={P} className="desc-txt" /> : "Agrega una descripción"}
+              </div>
             )}
             {/* Adjuntos de la descripción: imágenes y documentos, con el clip o arrastrando. */}
             <div className={"adj" + (arrastraDesc ? " arrastrando" : "")}
