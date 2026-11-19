@@ -464,11 +464,13 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
     const id = crypto.randomUUID();
     const imgs = archivos.filter((a) => a.img), docs = archivos.filter((a) => !a.img);
     const locales = imgs.map((a) => a.url);
-    const docsLocales = docs.map((a) => ({ nombre: a.file.name, tipo: a.file.type, peso: a.file.size }));
+    const extra = (a) => (a.voz ? { voz: true, duracion: Math.round(a.duracion * 10) / 10, transcripcion: a.transcripcion || "" } : {});
+    const docsLocales = docs.map((a) => ({ nombre: a.file.name, tipo: a.file.type, peso: a.file.size, local: a.local, ...extra(a) }));
     setComs((cs) => cs.concat([{ id, tarea_id: tarea, padre_id: padre || null, autor: yo, txt: t, imagenes: [], archivos: docsLocales, locales, editado: false, creado: new Date().toISOString(), subiendo: archivos.length > 0 }]));
     try {
       const subidasImg = await Promise.all(imgs.map((a) => subirArchivo(tarea, a.file)));
-      const subidasDoc = await Promise.all(docs.map((a) => subirArchivo(tarea, a.file)));
+      const subidasDoc = await Promise.all(docs.map(async (a) => ({ ...(await subirArchivo(tarea, a.file)), ...extra(a) })));
+      subidasDoc.forEach((d, i) => { if (docs[i].local) setUrls((u) => ({ ...u, [d.ruta]: docs[i].local })); });
       const rutas = subidasImg.map((x) => x.ruta);
       setUrls((u) => { const n = { ...u }; rutas.forEach((r, i) => { n[r] = locales[i]; }); return n; });
       const { data, error } = await supabase.from("comentarios").insert({ id, tarea_id: tarea, padre_id: padre || null, autor: yo, txt: t, imagenes: rutas, archivos: subidasDoc }).select().single();

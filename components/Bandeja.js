@@ -326,7 +326,7 @@ export default function Bandeja({ items, coms, P, claves, yo, leidas, marcar, en
               const n = g.ultima, p = P[n.c.autor] || { nombre: n.c.autor, iniciales: "?", color: "#555" };
               const leida = g.todasLeidas;
               const nSin = sinLeerDe(g.filas);
-              const texto = enRenglon(n.c.txt) || ((n.c.imagenes || []).length ? "Imagen" : (n.c.archivos || []).length ? n.c.archivos[0].nombre : "");
+              const texto = enRenglon(n.c.txt) || ((n.c.imagenes || []).length ? "Imagen" : (n.c.archivos || []).length ? (n.c.archivos[0].voz ? "Nota de voz" + (n.c.archivos[0].transcripcion ? ": " + n.c.archivos[0].transcripcion : "") : n.c.archivos[0].nombre) : "");
               return (
                 <div key={g.tareaId} id={"bdj-" + g.tareaId}
                   className={"bdj-fila" + (apuntado === g.tareaId ? " activa" : "") + (leida ? " leida" : "")}

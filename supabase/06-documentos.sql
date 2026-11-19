@@ -19,3 +19,6 @@ update storage.buckets set file_size_limit = 26214400, allowed_mime_types = arra
   'application/vnd.ms-powerpoint','application/vnd.openxmlformats-officedocument.presentationml.presentation',
   'application/zip','application/x-zip-compressed','video/mp4','video/quicktime','audio/mpeg','audio/mp4'
 ] where id = 'adjuntos';
+
+-- 19-nov-2026 (notas de voz): se suman los formatos de audio que graban Chrome (webm/ogg) y Safari (mp4/aac).
+-- Se aplicó por la API de Storage: allowed_mime_types += audio/webm, audio/ogg, audio/wav, audio/x-m4a, audio/aac.

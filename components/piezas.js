@@ -223,7 +223,7 @@ export const TIPOS_OK = [
   "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   "application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   "application/vnd.ms-powerpoint", "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-  "application/zip", "application/x-zip-compressed", "video/mp4", "video/quicktime", "audio/mpeg", "audio/mp4",
+  "application/zip", "application/x-zip-compressed", "video/mp4", "video/quicktime", "audio/mpeg", "audio/mp4", "audio/webm", "audio/ogg", "audio/wav", "audio/x-m4a", "audio/aac",
 ];
 export const ACEPTA = TIPOS_OK.join(",") + ",.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.csv,.txt,.zip,.mp4,.mov,.mp3,.m4a";
 export const PESO_MAX = 25 * 1024 * 1024;
@@ -260,7 +260,112 @@ export function Doc({ a, url, onQuitar, subiendo }) {
 }
 export function Docs({ lista, urls, onQuitar, subiendo }) {
   if (!lista || !lista.length) return null;
-  return <div className="docs">{lista.map((a, i) => <Doc key={a.ruta || i} a={a} url={a.ruta ? urls[a.ruta] : null} subiendo={subiendo} onQuitar={onQuitar ? () => onQuitar(a) : null} />)}</div>;
+  return (
+    <div className="docs">
+      {lista.map((a, i) => a.voz
+        ? <NotaVoz key={a.ruta || i} a={a} url={(a.ruta && urls[a.ruta]) || a.local} subiendo={subiendo} onQuitar={onQuitar ? () => onQuitar(a) : null} />
+        : <Doc key={a.ruta || i} a={a} url={a.ruta ? urls[a.ruta] : null} subiendo={subiendo} onQuitar={onQuitar ? () => onQuitar(a) : null} />)}
+    </div>
+  );
+}
+
+/* ══ NOTAS DE VOZ (como Blue OS): se graban desde la caja del hilo y abajo va su transcripción.
+   La transcripción la hace el propio navegador mientras se habla (gratis, sin mandar el audio a
+   ningún servicio). Funciona en Chrome, Edge y Safari; si el navegador no sabe, la nota va sin texto. ══ */
+const mmss = (s) => { s = Math.max(0, Math.round(s || 0)); return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0"); };
+export function NotaVoz({ a, url, onQuitar, subiendo }) {
+  const ref = useRef(null);
+  const [sonando, setSonando] = useState(false);
+  const [t, setT] = useState(0);
+  const [dur, setDur] = useState(a.duracion || 0);
+  const [verTxt, setVerTxt] = useState(false);
+  const toggle = (e) => { e.stopPropagation(); const el = ref.current; if (!el || !url) return; if (el.paused) el.play(); else el.pause(); };
+  const ir = (e) => {
+    e.stopPropagation(); const el = ref.current; if (!el || !dur) return;
+    const r = e.currentTarget.getBoundingClientRect(); el.currentTime = Math.min(dur, Math.max(0, ((e.clientX - r.left) / r.width) * dur)); setT(el.currentTime);
+  };
+  return (
+    <span className={"voz" + (subiendo ? " subiendo" : "")} onClick={(e) => e.stopPropagation()}>
+      <span className="voz-fila">
+        <button type="button" className="voz-play" onClick={toggle} disabled={!url} aria-label={sonando ? "Pausar" : "Escuchar"}>
+          {sonando ? <Svg tam={14} ancho={2.4}><path d="M8 5v14" /><path d="M16 5v14" /></Svg> : <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4.5v15l12-7.5z" /></svg>}
+        </button>
+        <span className="voz-barra" onClick={ir} role="slider" aria-label="Posición" aria-valuenow={Math.round(t)} aria-valuemax={Math.round(dur)}>
+          <span className="voz-onda" />
+          <span className="voz-lleno" style={{ width: (dur ? (t / dur) * 100 : 0) + "%" }} />
+        </span>
+        <span className="voz-tiempo">{subiendo ? "Subiendo…" : mmss(sonando || t ? t : dur)}</span>
+        {onQuitar && <button type="button" className="voz-x" aria-label="Quitar la nota de voz" onClick={onQuitar}><IcoX tam={11} /></button>}
+      </span>
+      {a.transcripcion
+        ? <button type="button" className="voz-txt-btn" onClick={(e) => { e.stopPropagation(); setVerTxt((v) => !v); }}>{verTxt ? "Ocultar transcripción" : "Ver transcripción"}</button>
+        : !subiendo && <span className="voz-sin">Sin transcripción</span>}
+      {verTxt && a.transcripcion && <span className="voz-txt">{a.transcripcion}</span>}
+      {url && <audio ref={ref} src={url} preload="metadata" onPlay={() => setSonando(true)} onPause={() => setSonando(false)} onEnded={() => { setSonando(false); setT(0); }}
+        onTimeUpdate={(e) => setT(e.currentTarget.currentTime)}
+        onLoadedMetadata={(e) => { const d = e.currentTarget.duration; if (isFinite(d) && d > 0) setDur(d); }} />}
+    </span>
+  );
+}
+
+/* El grabador: pide el micrófono, graba hasta 5 minutos y transcribe mientras tanto. */
+export function usarGrabador(onListo, onError) {
+  const [grabando, setGrabando] = useState(false);
+  const [seg, setSeg] = useState(0);
+  const [vivo, setVivo] = useState("");
+  const r = useRef({});
+  const parar = (guardar) => {
+    const x = r.current;
+    clearInterval(x.reloj);
+    try { x.rec && x.rec.stop(); } catch {}
+    x.guardar = guardar;
+    try { if (x.mr && x.mr.state !== "inactive") x.mr.stop(); } catch {}
+    setGrabando(false);
+  };
+  const empezar = async () => {
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") { onError("Este navegador no puede grabar audio."); return; }
+    let stream;
+    try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
+    catch { onError("No pude usar el micrófono. Revisa que el navegador tenga permiso."); return; }
+    const tipos = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg"];
+    const mime = tipos.find((t) => MediaRecorder.isTypeSupported?.(t)) || "";
+    const mr = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+    const partes = [], x = { mr, partes, final: "", inicio: Date.now(), guardar: false };
+    r.current = x;
+    mr.ondataavailable = (e) => { if (e.data && e.data.size) partes.push(e.data); };
+    mr.onstop = () => {
+      stream.getTracks().forEach((t) => t.stop());
+      if (!x.guardar) return;
+      const base = (mr.mimeType || mime || "audio/webm").split(";")[0];
+      const blob = new Blob(partes, { type: base });
+      const ext = base.includes("mp4") ? "m4a" : base.includes("ogg") ? "ogg" : "webm";
+      const file = new File([blob], "Nota de voz." + ext, { type: base });
+      const duracion = (Date.now() - x.inicio) / 1000;
+      onListo({ file, duracion, transcripcion: (x.final + " " + (x.parcial || "")).replace(/\s+/g, " ").trim() });
+    };
+    mr.start(500);
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (SR) {
+      try {
+        const rec = new SR(); rec.lang = "es-AR"; rec.continuous = true; rec.interimResults = true;
+        rec.onresult = (ev) => {
+          let parcial = "";
+          for (let i = ev.resultIndex; i < ev.results.length; i++) {
+            if (ev.results[i].isFinal) x.final += " " + ev.results[i][0].transcript; else parcial += ev.results[i][0].transcript;
+          }
+          x.parcial = parcial; setVivo((x.final + " " + parcial).trim());
+        };
+        rec.onend = () => { if (x.mr.state === "recording") { try { rec.start(); } catch {} } };
+        rec.start(); x.rec = rec;
+      } catch {}
+    }
+    setSeg(0); setVivo(""); setGrabando(true);
+    x.reloj = setInterval(() => {
+      const s = Math.round((Date.now() - x.inicio) / 1000); setSeg(s);
+      if (s >= 300) parar(true);
+    }, 250);
+  };
+  return { grabando, seg, vivo, empezar, listo: () => parar(true), cancelar: () => parar(false) };
 }
 
 /* Las fotos de un comentario: miniaturas que se abren en grande al tocarlas. */
@@ -302,8 +407,12 @@ export function Composer({ P, claves, placeholder, autoFocus, onEnviar, onCancel
     if (!ok) { setTxt(t); setArchivos(a); }
   };
   const ed = usarEditor(txt, setTxt);
+  const gr = usarGrabador(
+    ({ file, duracion, transcripcion }) => setArchivos((a) => a.concat([{ id: crypto.randomUUID(), file, img: false, voz: true, duracion, transcripcion, local: URL.createObjectURL(file) }])),
+    (m) => setAvisoTipo(m),
+  );
   return (
-    <div className={"composer" + (arrastrando ? " arrastrando" : "")}
+    <div className={"composer" + (arrastrando ? " arrastrando" : "") + (gr.grabando ? " grabando" : "")}
       onDragOver={(e) => { if ([...e.dataTransfer.types].includes("Files")) { e.preventDefault(); setArrastrando(true); } }}
       onDragLeave={() => setArrastrando(false)}
       onDrop={(e) => { e.preventDefault(); setArrastrando(false); sumar(e.dataTransfer.files); }}>
@@ -321,12 +430,22 @@ export function Composer({ P, claves, placeholder, autoFocus, onEnviar, onCancel
       {archivos.some((a) => !a.img) && (
         <div className="docs">
           {archivos.filter((a) => !a.img).map((a) => (
-            <Doc key={a.id} a={{ nombre: a.file.name, tipo: a.file.type, peso: a.file.size }} onQuitar={() => setArchivos((xs) => xs.filter((x) => x.id !== a.id))} />
+            a.voz
+              ? <NotaVoz key={a.id} a={a} url={a.local} onQuitar={() => setArchivos((xs) => xs.filter((x) => x.id !== a.id))} />
+              : <Doc key={a.id} a={{ nombre: a.file.name, tipo: a.file.type, peso: a.file.size }} onQuitar={() => setArchivos((xs) => xs.filter((x) => x.id !== a.id))} />
           ))}
         </div>
       )}
       {avisoTipo && <span className="comp-aviso">{avisoTipo}</span>}
-      <textarea ref={ed.ref} placeholder={placeholder} value={txt} autoFocus={autoFocus} aria-label={placeholder}
+      {gr.grabando && (
+        <div className="grab">
+          <span className="grab-punto" /><span className="grab-t">{mmss(gr.seg)}</span>
+          <span className="grab-vivo">{gr.vivo || "Escuchando…"}</span>
+          <button type="button" className="btn-chico sec" onClick={gr.cancelar}>Cancelar</button>
+          <button type="button" className="btn-chico pri" onClick={gr.listo}>Listo</button>
+        </div>
+      )}
+      <textarea ref={ed.ref} placeholder={placeholder} value={txt} autoFocus={autoFocus} aria-label={placeholder} hidden={gr.grabando}
         onChange={(e) => setTxt(e.target.value)}
         onPaste={(e) => { const f = [...(e.clipboardData?.files || [])]; if (f.length) { e.preventDefault(); sumar(f); } }}
         onKeyDown={(e) => {
@@ -339,10 +458,14 @@ export function Composer({ P, claves, placeholder, autoFocus, onEnviar, onCancel
           <Svg ancho={1.8}><path d="m20.5 11.5-8.3 8.3a5.2 5.2 0 0 1-7.4-7.4l8.6-8.6a3.5 3.5 0 0 1 4.9 4.9l-8.4 8.4a1.7 1.7 0 0 1-2.5-2.5l7.8-7.8" /></Svg>
         </button>
         <input ref={inputRef} type="file" accept={ACEPTA} multiple hidden onChange={(e) => { sumar(e.target.files); e.target.value = ""; }} />
+        <button type="button" className={"eico" + (gr.grabando ? " on" : "")} onClick={() => (gr.grabando ? gr.listo() : gr.empezar())}
+          aria-label={gr.grabando ? "Terminar la nota de voz" : "Grabar una nota de voz"} title={gr.grabando ? "Terminar la nota de voz" : "Grabar una nota de voz"}>
+          <Svg ancho={1.8}><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5.5 11a6.5 6.5 0 0 0 13 0" /><path d="M12 17.5V21" /></Svg>
+        </button>
         <BarraFormato ed={ed} />
         <span className="esp" />
         {conCancelar && <button type="button" className="btn-chico sec" onClick={onCancelar}>Cancelar</button>}
-        <button type="button" className="enviar" disabled={!txt.trim() && !archivos.length} aria-label="Enviar" onClick={enviar}><IcoEnviar /></button>
+        <button type="button" className="enviar" disabled={gr.grabando || (!txt.trim() && !archivos.length)} aria-label="Enviar" onClick={enviar}><IcoEnviar /></button>
       </div>
     </div>
   );
