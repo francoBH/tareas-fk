@@ -848,3 +848,83 @@ div.desc{cursor:text}
   .reu-fila .reu-txt{grid-column:1/-1}
   .reu-dia{flex:1 1 140px}
 }
+
+/* ═════ OBJETIVOS (19-nov) — copia de Blue OS: meta, actual, diferencia, avance y estado ═════ */
+.obj{display:flex;flex-direction:column;gap:18px;padding-bottom:40px}
+.obj-barra-sup{display:flex;align-items:center;gap:10px}
+.obj-barra-sup .esp{flex:1}
+.obj-barra-sup .btn-pri{display:inline-flex;align-items:center;gap:6px}
+.obj-grupo{background:var(--bg-2);border:1px solid var(--b1);border-radius:12px;overflow:hidden}
+.obj-div{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--b1);border-left:3px solid var(--c,var(--ac))}
+.obj-div b{font-size:14px}
+.obj-div span{font-size:12px;color:var(--t3)}
+.obj-cols,.obj-fila{display:grid;grid-template-columns:minmax(220px,2.4fr) 56px 92px 80px 96px 88px minmax(140px,1.4fr) 96px;align-items:center;gap:10px;padding:0 16px}
+.obj-cols{height:34px;font-size:12px;color:var(--t3);border-bottom:1px solid var(--b1)}
+.obj-cols span:nth-child(n+4):nth-child(-n+6){text-align:right}
+.obj-fila{min-height:58px;border-bottom:1px solid var(--b1);cursor:pointer;transition:background .12s}
+.obj-fila:last-child{border-bottom:0}
+.obj-fila:hover,.obj-fila.on{background:var(--row)}
+.obj-fila:focus-visible{outline:2px solid var(--ac);outline-offset:-2px}
+.obj-nom{display:flex;flex-direction:column;gap:2px;min-width:0}
+.obj-nom b{font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.obj-nom span{font-size:12px;color:var(--t3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.obj-c{font-size:13px;color:var(--t2);min-width:0}
+.obj-c.num{text-align:right;font-variant-numeric:tabular-nums;display:flex;flex-direction:column;align-items:flex-end;gap:1px}
+.obj-c.num b{color:var(--t1);font-weight:600}
+.obj-c.venc{color:var(--rojo-txt);font-weight:600}
+.obj-c.bien{color:var(--verde-txt)}.obj-c.mal{color:var(--rojo-txt)}
+.obj-origen{font-size:11px;color:var(--t3)}
+.obj-falta{display:inline-flex;align-items:center;height:22px;padding:0 8px;border-radius:6px;background:#FFF4DC;border:1px solid #E0A33A;color:#8A5300;font-size:12px;font-weight:600}
+.obj-avance{display:flex;align-items:center;gap:8px;min-width:0}
+.obj-barra{position:relative;flex:1;height:8px;border-radius:999px;background:var(--bg-4);overflow:visible}
+.obj-barra>span{display:block;height:100%;border-radius:999px;transition:width .3s}
+.obj-barra>i{position:absolute;top:-3px;bottom:-3px;width:2px;margin-left:-1px;border-radius:1px;background:var(--t2)}
+.obj-barra.grande{height:10px;flex:none}
+.obj-pct{font-size:12px;color:var(--t2);width:38px;text-align:right}
+.obj-estado{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 9px;border-radius:999px;font-size:12px;font-weight:600;color:var(--c);background:color-mix(in srgb,var(--c) 14%,transparent);white-space:nowrap}
+.obj-estado::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--c)}
+.obj-panel{width:min(560px,100%)}
+.obj-ed{display:flex;flex-direction:column;gap:16px;padding:16px 18px 40px}
+.obj-tit{font-size:20px;font-weight:700;border:1px solid transparent;border-radius:8px;padding:6px 8px;margin:-6px -8px;background:transparent;color:var(--t1);outline:none;font-family:inherit}
+.obj-tit:hover{border-color:var(--b2)}.obj-tit:focus{border-color:var(--ac);background:var(--bg-1)}
+.obj-ddc{min-height:60px;resize:vertical;border:1px solid var(--b2);border-radius:9px;background:var(--bg-1);padding:9px 10px;font-size:13px;color:var(--t1);font-family:inherit;outline:none}
+.obj-ddc:focus{border-color:var(--ac)}
+.obj-progreso{display:flex;flex-direction:column;gap:8px;padding:14px;border-radius:10px;background:var(--bg-1);border:1px solid var(--b1)}
+.obj-grande{font-size:28px;font-weight:800;letter-spacing:-.025em}
+.obj-grande small{font-size:15px;font-weight:500;color:var(--t3)}
+.obj-sub{font-size:12px;color:var(--t3)}
+.obj-campos{display:grid;grid-template-columns:110px 1fr;gap:10px 12px;align-items:center}
+.obj-campos>label{font-size:12px;color:var(--t3)}
+.obj-campos .reu-fecha{justify-self:start}
+.obj-num{height:32px;border:1px solid var(--b2);border-radius:8px;background:var(--bg-1);padding:0 10px;font-size:13px;color:var(--t1);font-family:inherit;outline:none;min-width:0}
+.obj-num:focus{border-color:var(--ac)}
+.obj-personas{display:flex;flex-wrap:wrap;gap:6px}
+.obj-persona{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 10px 0 4px;border-radius:999px;border:1px solid var(--b2);font-size:12.5px;color:var(--t2)}
+.obj-persona.on{border-color:var(--ac);background:var(--ac-soft);color:var(--t1)}
+.obj-tareas{display:flex;flex-direction:column;gap:6px}
+.obj-tareas-cab{display:flex;align-items:baseline;gap:8px;margin-bottom:2px}
+.obj-tareas-cab b{font-size:14px}.obj-tareas-cab span{font-size:12px;color:var(--t3)}
+.obj-tarea{display:flex;align-items:center;gap:8px;min-height:36px;padding:0 8px;border-radius:8px;background:var(--bg-1);border:1px solid var(--b1)}
+.obj-tarea-nom{flex:1;min-width:0;text-align:left;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.obj-tarea-nom:hover{color:var(--ac-ink);text-decoration:underline;text-underline-offset:3px}
+.obj-tarea-f{font-size:12px;color:var(--t3)}
+.obj-nosuma{font-size:11px;color:var(--t3);border:1px solid var(--b2);border-radius:999px;padding:1px 7px}
+.obj-busca{flex:none;margin-top:4px}
+.obj-cand{display:flex;align-items:center;gap:8px;min-height:34px;padding:0 10px;border-radius:8px;font-size:13px;text-align:left}
+.obj-cand:hover{background:var(--bg-4)}
+.obj-cand span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.obj-cand em{font-style:normal;font-size:11px;color:var(--t3)}
+.pop-nota{display:block;padding:8px 10px;font-size:12.5px;color:var(--t3);max-width:240px}
+.obj{container-type:inline-size}
+@container (max-width:900px){
+  .obj-cols{display:none}
+  .obj-fila{grid-template-columns:1fr auto auto;grid-template-areas:"nom nom est" "av av av" "fe ac re";gap:6px 12px;padding:12px 14px}
+  .obj-fila>.obj-nom{grid-area:nom}
+  .obj-fila>.obj-c:nth-child(8){grid-area:est;justify-self:end}
+  .obj-fila>.obj-avance{grid-area:av}
+  .obj-fila>.obj-c:nth-child(2){grid-area:re;justify-self:end}
+  .obj-fila>.obj-c:nth-child(3){grid-area:fe}
+  .obj-fila>.obj-c:nth-child(5){grid-area:ac;flex-direction:row;gap:5px;align-items:baseline}
+  .obj-fila>.obj-c:nth-child(4),.obj-fila>.obj-c:nth-child(6){display:none}
+}
+@media (max-width:700px){.obj-campos{grid-template-columns:1fr}}

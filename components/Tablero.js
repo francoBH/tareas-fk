@@ -9,6 +9,7 @@ import Bandeja from "@/components/Bandeja";
 import VersionNueva from "@/components/VersionNueva";
 import Feedback from "@/components/Feedback";
 import Reuniones from "@/components/Reuniones";
+import Objetivos, { medirObjetivo } from "@/components/Objetivos";
 import Resumen, { armarBase, medirRango, minutosDe } from "@/components/Resumen";
 import { ATAJOS_RECURRENCIA, DIAS_SEMANA_CORTO, diaSemanaDe, mismaRecurrencia, opcionesDelMes, siguienteVuelta, textoRecurrencia, vueltasEntre } from "@/lib/recurrencia";
 
@@ -45,6 +46,7 @@ const IcoPin = ({ tam = 15, lleno = false }) => (
 const RANGO_PRIO = { urgente: 0, alta: 1, media: 2, baja: 3 };
 const estDe = (id) => ESTADOS.find((e) => e.id === id) || ESTADOS[1];
 const priDe = (id) => PRIORIDADES.find((p) => p.id === id) || null;
+const IcoObjetivo = ({ tam = 14 }) => <Svg tam={tam} ancho={1.8}><circle cx="12" cy="12" r="9" /><circle cx="12" cy="12" r="5" /><circle cx="12" cy="12" r="1.2" fill="currentColor" /></Svg>;
 const tipDe = (id) => TIPOS.find((x) => x.id === id) || null;
 const parar = (e) => { if (e && e.stopPropagation) e.stopPropagation(); };
 
@@ -128,6 +130,8 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
   const [pines, setPines] = useState(() => cache?.pines || []);
   /* Tareas propuestas desde reuniones, esperando aprobación. */
   const [propuestas, setPropuestas] = useState(() => cache?.propuestas || []);
+  /* Objetivos: metas con fecha que juntan tareas (como Blue OS). */
+  const [objetivos, setObjetivos] = useState(() => cache?.objetivos || []);
   const [arrastrandoPin, setArrastrandoPin] = useState(null);
   const pinesRef = useRef(pines);
   pinesRef.current = pines;
@@ -182,7 +186,7 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
 
   /* ── lectura y tiempo real ── */
   const cargar = useCallback(async () => {
-    const [a, b, l, v, hi, pr, pp] = await Promise.all([
+    const [a, b, l, v, hi, pr, pp, ob] = await Promise.all([
       supabase.from("tareas").select("*").order("creada", { ascending: true }),
       supabase.from("comentarios").select("*").order("creado", { ascending: true }),
       supabase.from("lecturas").select("comentario_id"),
@@ -190,7 +194,9 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
       supabase.from("historial").select("*").order("creado", { ascending: true }),
       supabase.from("prioridades").select("tarea_id, orden").order("orden", { ascending: true }),
       supabase.from("propuestas").select("*").order("creado", { ascending: false }).limit(300),
+      supabase.from("objetivos").select("*").order("creado", { ascending: true }),
     ]);
+    if (!ob.error) setObjetivos(ob.data || []);
     if (!pp.error) setPropuestas(pp.data || []);
     if (!pr.error) setPines((pr.data || []).map((x) => x.tarea_id));
     if (!v.error) setVueltas(v.data || []);
@@ -223,6 +229,7 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
       .on("postgres_changes", { event: "*", schema: "public", table: "vueltas" }, aplicarCambio(setVueltas))
       .on("postgres_changes", { event: "*", schema: "public", table: "historial" }, aplicarCambio(setHistorial))
       .on("postgres_changes", { event: "*", schema: "public", table: "propuestas" }, aplicarCambio(setPropuestas))
+      .on("postgres_changes", { event: "*", schema: "public", table: "objetivos" }, aplicarCambio(setObjetivos))
       /* Las prioridades son de cada uno: lo que cambie en otro dispositivo se vuelve a leer. */
       .on("postgres_changes", { event: "*", schema: "public", table: "prioridades" }, () => {
         supabase.from("prioridades").select("tarea_id, orden").order("orden", { ascending: true }).then(({ data, error }) => { if (!error) setPines((data || []).map((x) => x.tarea_id)); });
@@ -250,10 +257,10 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
   /* La copia del navegador se guarda sola, un rato después del último cambio. */
   useEffect(() => {
     const t = setTimeout(() => {
-      try { localStorage.setItem("tf-datos", JSON.stringify({ filas: filas.filter((f) => !String(f.id).startsWith("tmp-")), coms: coms.filter((c) => !String(c.id).startsWith("tmp-") && !c.subiendo), leidas: [...leidas], vueltas, historial: historial.slice(-400), pines, propuestas: propuestas.slice(0, 200) })); } catch {}
+      try { localStorage.setItem("tf-datos", JSON.stringify({ filas: filas.filter((f) => !String(f.id).startsWith("tmp-")), coms: coms.filter((c) => !String(c.id).startsWith("tmp-") && !c.subiendo), leidas: [...leidas], vueltas, historial: historial.slice(-400), pines, propuestas: propuestas.slice(0, 200), objetivos })); } catch {}
     }, 500);
     return () => clearTimeout(t);
-  }, [filas, coms, leidas, vueltas, historial, pines, propuestas]);
+  }, [filas, coms, leidas, vueltas, historial, pines, propuestas, objetivos]);
 
   /* Las imágenes son privadas: se piden links firmados (valen 7 días) para las que falten. */
   useEffect(() => {
@@ -432,6 +439,9 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
     return id;
   };
   const porAprobar = propuestas.filter((p) => p.estado === "pendiente").length;
+  const objDe = (id) => (id ? objetivos.find((o) => o.id === id) || null : null);
+  const objActivos = objetivos.filter((o) => o.estado !== "archivado");
+  const objOff = objActivos.filter((o) => medirObjetivo(o, tareas, hoy).estado === "off").length;
 
   /* ── prioridades fijadas ── */
   const TOPE_PINES = 20;
@@ -954,6 +964,15 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
         <Opt onClick={() => { aplicar(tg, { minutos: null }); cerrarPop(); }}><span style={{ color: "var(--t3)" }}>Estimar por prioridad</span></Opt>
       </>);
     }
+    if (pop.tipo === "obj") {
+      const actual = valorDe(tg, "objetivo_id");
+      const activos = objetivos.filter((o) => o.estado !== "archivado");
+      return (<>
+        {!activos.length && <span className="pop-nota">Todavía no hay objetivos. Créalos en la sección Objetivos.</span>}
+        {activos.map((o) => <Opt key={o.id} on={actual === o.id} onClick={() => { aplicar(tg, { objetivo_id: o.id }); cerrarPop(); }}><IcoObjetivo tam={14} />{o.nombre}</Opt>)}
+        {actual && <><span className="psep" /><Opt onClick={() => { aplicar(tg, { objetivo_id: null }); cerrarPop(); }}><span style={{ color: "var(--t3)" }}>Quitar del objetivo</span></Opt></>}
+      </>);
+    }
     if (pop.tipo === "tipo") {
       const actual = valorDe(tg, "tipo");
       return TIPOS.map((x) => <Opt key={x.id} on={actual === x.id && tg !== "lote"} onClick={() => { aplicar(tg, { tipo: x.id }); cerrarPop(); }}><span className="cuadro" style={{ background: x.color }} />{x.largo}</Opt>);
@@ -1257,6 +1276,9 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
             </button>
             {tA.fecha && <span className="chip">{calendario(tA.fecha)}</span>}
             {tA.recurrencia && <button type="button" className="dato-btn rep" onClick={(ev) => abrirPop(ev, "fecha", tA.id, 470, 430)} title="Se repite"><IcoRepite tam={14} /><span>{textoRecurrencia(tA.recurrencia)}</span></button>}
+            <button type="button" className="dato-btn" onClick={(ev) => abrirPop(ev, "obj", tA.id, 260, 220)} title="El objetivo al que suma esta tarea">
+              <IcoObjetivo tam={14} />{objDe(tA.objetivo_id) ? <span>{objDe(tA.objetivo_id).nombre}</span> : <span style={{ color: "var(--t3)" }}>Sin objetivo</span>}
+            </button>
             <span className="edad" title={"Creada el " + fechaCreacion(tA.creadaDia)}>{edad + (edad === 1 ? " día de edad" : " días de edad")}</span>
           </div>
 
@@ -1435,6 +1457,11 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
           <span>Reuniones</span>
           {porAprobar > 0 && <span className="cnt" title="Tareas para aprobar">{porAprobar}</span>}
         </button>
+        <button type="button" className={"nav " + (vista === "objetivos" ? "on" : "")} onClick={() => irA("objetivos")}>
+          <Svg tam={16} ancho={1.7}><circle cx="12" cy="12" r="9" /><circle cx="12" cy="12" r="5" /><circle cx="12" cy="12" r="1.2" fill="currentColor" /></Svg>
+          <span>Objetivos</span>
+          {objOff > 0 && <span className="cnt" title="Objetivos atrasados">{objOff}</span>}
+        </button>
         <div className="side-linea" />
         {navs.map((n) => {
           const c = urgentes(n.id);
@@ -1477,6 +1504,9 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
           <button type="button" className={"nav nav-bandeja " + (vista === "reuniones" ? "on" : "")} onClick={() => irA("reuniones")} aria-label="Reuniones" title="Reuniones">
             <Svg tam={16} ancho={1.7}><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></Svg>{porAprobar > 0 && <span className="cnt">{porAprobar}</span>}
           </button>
+          <button type="button" className={"nav nav-bandeja " + (vista === "objetivos" ? "on" : "")} onClick={() => irA("objetivos")} aria-label="Objetivos" title="Objetivos">
+            <Svg tam={16} ancho={1.7}><circle cx="12" cy="12" r="9" /><circle cx="12" cy="12" r="5" /><circle cx="12" cy="12" r="1.2" fill="currentColor" /></Svg>{objOff > 0 && <span className="cnt">{objOff}</span>}
+          </button>
           {navs.map((n) => {
             const c = urgentes(n.id);
             return (
@@ -1490,7 +1520,15 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
           </button>
         </div>
 
-        {vista === "inicio" ? <div className="bdj-scroll">{inicio()}</div> : vista === "reuniones" ? (<>
+        {vista === "inicio" ? <div className="bdj-scroll">{inicio()}</div> : vista === "objetivos" ? (<>
+          <div className="head">
+            <h1>Objetivos</h1>
+            <span className="sub">{objActivos.length ? objActivos.length + (objActivos.length === 1 ? " activo" : " activos") + (objOff ? " · " + objOff + " atrasado" + (objOff === 1 ? "" : "s") : "") : "Sin objetivos"}</span>
+          </div>
+          <div className="bdj-scroll">
+            <Objetivos objetivos={objetivos} setObjetivos={setObjetivos} tareas={tareas} P={P} claves={claves.filter((k) => P[k]?.rol !== "Solo prueba" || k === yo)} yo={yo} avisar={avisar} abrirTarea={abrirTarea} cambiarTarea={cambiarTarea} tipDe={tipDe} />
+          </div>
+        </>) : vista === "reuniones" ? (<>
           <div className="head">
             <h1>Reuniones</h1>
             <span className="sub">{porAprobar ? porAprobar + (porAprobar === 1 ? " tarea para aprobar" : " tareas para aprobar") : "Nada para aprobar"}</span>
