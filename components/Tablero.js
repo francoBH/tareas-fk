@@ -10,6 +10,7 @@ import VersionNueva from "@/components/VersionNueva";
 import Feedback from "@/components/Feedback";
 import Reuniones from "@/components/Reuniones";
 import Objetivos, { medirObjetivo } from "@/components/Objetivos";
+import Buscador, { anotarReciente } from "@/components/Buscador";
 import Resumen, { armarBase, medirRango, minutosDe } from "@/components/Resumen";
 import { corridasDe, pideMotivo, MOTIVOS } from "@/lib/corridas";
 import { ATAJOS_RECURRENCIA, DIAS_SEMANA_CORTO, diaSemanaDe, mismaRecurrencia, opcionesDelMes, siguienteVuelta, textoRecurrencia, vueltasEntre } from "@/lib/recurrencia";
@@ -143,6 +144,7 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
   const [verCambios, setVerCambios] = useState(true);
   const [persoRep, setPersoRep] = useState(null);
   const [motivoTxt, setMotivoTxt] = useState("");
+  const [buscar, setBuscar] = useState(false);
   const [arrastraDesc, setArrastraDesc] = useState(false);
   const [subiendoDesc, setSubiendoDesc] = useState(0);
   /* Lo que YO ya leí de la bandeja (ids de comentarios). */
@@ -501,7 +503,7 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
     setPines(ids); guardarOrdenPines(ids);
   };
   const irA = (v) => { setVista(v); setSel({}); setNueva(null); setPop(null); };
-  const abrirTarea = (id) => { setAbierta(id); setPop(null); setEditTit(false); setEditDesc(false); setAgregandoSub(false); setResp(null); setEdit(null); setCom(""); };
+  const abrirTarea = (id) => { anotarReciente(id); setAbierta(id); setPop(null); setEditTit(false); setEditDesc(false); setAgregandoSub(false); setResp(null); setEdit(null); setCom(""); };
 
   /* ── comentarios ── */
   /* El comentario se ve al instante (con sus fotos locales) mientras las imágenes suben. Si algo
@@ -1539,6 +1541,19 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
     return () => window.removeEventListener("keydown", alTeclear);
   }, [pop, abierta, visor]);
 
+  /* ⌘J o ⌘K (Ctrl J / Ctrl K) abre y cierra el buscador, desde cualquier pantalla y aunque
+     el foco esté en un campo, como en Blue OS. */
+  useEffect(() => {
+    const alTeclear = (e) => {
+      const k = (e.key || "").toLowerCase();
+      if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && (k === "j" || k === "k")) {
+        e.preventDefault(); setPop(null); setBuscar((b) => !b);
+      }
+    };
+    window.addEventListener("keydown", alTeclear);
+    return () => window.removeEventListener("keydown", alTeclear);
+  }, []);
+
   /* La pestaña del navegador dice cuántas hay para hoy o atrasadas, como Blue OS. */
   const pendientesHoy = urgentes("todas");
   useEffect(() => { document.title = pendientesHoy > 0 ? "(" + pendientesHoy + ") Tareas" : "Tareas"; }, [pendientesHoy]);
@@ -1558,6 +1573,9 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
     <div className={"tf " + (tema === "claro" ? "claro" : "")} ref={rootRef}>
       <aside className="side">
         <div className="marca"><span className="marca-logo">FK</span><div><b>TAREAS</b><span>{nombresEquipo}</span></div></div>
+        <button type="button" className="bus-abrir" onClick={() => setBuscar(true)} title="Buscar tareas (⌘J)">
+          <Svg tam={15} ancho={1.8}><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></Svg><span>Buscar</span><kbd>⌘J</kbd>
+        </button>
         <button type="button" className={"nav " + (vista === "inicio" ? "on" : "")} onClick={() => irA("inicio")}>
           <Svg tam={16} ancho={1.7}><path d="M3 10.5 12 3l9 7.5" /><path d="M5 9v11h14V9" /><path d="M10 20v-6h4v6" /></Svg>
           <span>Inicio</span>
@@ -1611,6 +1629,9 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
 
       <section className="main">
         <div className="tabs-movil">
+          <button type="button" className="nav nav-bandeja" onClick={() => setBuscar(true)} aria-label="Buscar tareas" title="Buscar tareas">
+            <Svg tam={16} ancho={1.8}><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></Svg>
+          </button>
           <button type="button" className={"nav nav-bandeja " + (vista === "inicio" ? "on" : "")} onClick={() => irA("inicio")} aria-label="Inicio" title="Inicio">
             <Svg tam={16} ancho={1.7}><path d="M3 10.5 12 3l9 7.5" /><path d="M5 9v11h14V9" /><path d="M10 20v-6h4v6" /></Svg>
             {esperanRevision.length > 0 && <span className="cnt">{esperanRevision.length}</span>}
@@ -1672,7 +1693,7 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
           <div className="bdj-scroll">
             <Bandeja items={itemsBandeja} coms={coms} P={P} claves={claves} yo={yo} leidas={leidas} marcar={marcar}
               enviar={(tareaId, txt, padre, archivos) => enviarComentario(txt, padre, archivos, tareaId)}
-              abrirTarea={abrirTarea} urls={urls} onVer={setVisor} tipDe={tipDe} ocupado={!!(abierta || visor || pop)} avisar={avisar} />
+              abrirTarea={abrirTarea} urls={urls} onVer={setVisor} tipDe={tipDe} ocupado={!!(abierta || visor || pop || buscar)} avisar={avisar} />
           </div>
         </>) : (<>
         <div className="head">
@@ -1766,6 +1787,7 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
         </div>
       )}
 
+      {buscar && <Buscador onCerrar={() => setBuscar(false)} tareas={tareas} P={P} tipDe={tipDe} abrirTarea={abrirTarea} hoy={hoy} />}
       <VersionNueva />
       {fbAbierto && <Feedback P={P} yo={yo} pantalla={vista} avisar={avisar} onCerrar={() => setFbAbierto(false)} />}
       {toast && <div className="toast" role="status">{toast}</div>}
