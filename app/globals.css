@@ -949,3 +949,15 @@ div.desc{cursor:text}
 .rs-kpi .rojo{color:var(--rojo-txt)}
 @container tf (max-width: 1180px){ .corr{grid-template-columns:1fr} }
 @container tf (max-width: 520px){ .corr .rs-kpis{grid-template-columns:repeat(2,minmax(0,1fr))} .corr-tramo{grid-template-columns:130px minmax(0,1fr) 24px} }
+
+/* ═════ ESPERAN TU REVISIÓN (19-nov) ═════ */
+.rev-fila{grid-template-columns:22px minmax(0,1fr) auto auto auto;min-height:48px}
+.rev-fila .pri-nom{white-space:normal;line-height:1.3;padding:5px 0}
+.rev-espera{font-size:12.5px;color:var(--t2);white-space:nowrap}
+.rev-espera.tarde{color:var(--rojo-txt);font-weight:600}
+.rev-fila .btn-chico{white-space:nowrap}
+@media (max-width:700px){
+  .rev-fila{grid-template-columns:22px minmax(0,1fr) auto;grid-template-areas:"ico nom nom" ". esp esp" ". cor apr";row-gap:6px;padding:8px 6px}
+  .rev-fila>:nth-child(1){grid-area:ico}.rev-fila>:nth-child(2){grid-area:nom}.rev-fila>:nth-child(3){grid-area:esp}
+  .rev-fila>:nth-child(4){grid-area:cor;justify-self:start}.rev-fila>:nth-child(5){grid-area:apr;justify-self:end}
+}

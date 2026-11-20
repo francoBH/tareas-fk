@@ -431,6 +431,16 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
     });
     cambiarTarea(tareaId, { subs });
   };
+  /* ESPERAN TU REVISIÓN (19-nov): una tarea «En revisión» espera a quien la creó, salvo que esa
+     persona sea responsable de ella; ahí espera a Franco. Antes nadie la veía: de las que salieron de
+     revisión, 4 de 5 las cerró la misma responsable. */
+  const revisorDe = (t) => (t.creado_por && !t.resp.includes(t.creado_por) ? t.creado_por : "F");
+  const enRevDesde = (t) => {
+    const h = historial.filter((x) => x.tarea_id === t.id && x.campo === "estado" && x.despues === "rev").map((x) => x.creado).sort().pop();
+    return h || t.actualizada || t.creada;
+  };
+  const esperanRevision = tareas.filter((t) => t.estado === "rev" && revisorDe(t) === yo)
+    .map((t) => ({ t, desde: enRevDesde(t) })).sort((a, b) => String(a.desde).localeCompare(String(b.desde)));
   /* Mis subtareas pendientes, de tareas abiertas (para el Inicio). */
   const misSubs = tareas.filter((t) => t.estado !== "comp").flatMap((t) => t.subs.filter((x) => !x.hecha && x.resp === yo).map((x) => ({ ...x, tarea: t })))
     .sort((a, b) => (a.fecha || "9999").localeCompare(b.fecha || "9999"));
@@ -703,6 +713,30 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
             <div className="ini-ahora-titulo">{cargando ? "Cargando tus tareas…" : titulo}</div>
           </div>
         </div>
+
+        {esperanRevision.length > 0 && (
+          <section className="ini-card ini-pri ini-rev" aria-label="Esperan tu revisión">
+            <header className="ini-card-head">
+              <h2 className="ini-h2"><span className="ini-pri-ico"><IconoEstado estado="rev" tam={15} /></span>Esperan tu revisión</h2>
+              <span className="ini-cuenta">{esperanRevision.length + (esperanRevision.length === 1 ? " tarea" : " tareas")}</span>
+            </header>
+            <div className="pri-lista">
+              {esperanRevision.map(({ t, desde }) => {
+                const horasEsp = (Date.now() - new Date(desde).getTime()) / 3600000;
+                const quien = t.resp.map((k) => P[k]?.nombre.split(" ")[0] || k).join(" y ");
+                return (
+                  <div key={t.id} className="pri-fila rev-fila" onClick={() => abrirTarea(t.id)}>
+                    <IconoEstado estado="rev" />
+                    <span className="pri-nom" title={t.nombre}>{t.nombre}{quien && <span className="sub-madre">La mandó {quien}</span>}</span>
+                    <span className={"rev-espera" + (horasEsp >= 24 ? " tarde" : "")} title={"En revisión desde el " + new Date(desde).toLocaleString("es-AR")}>{hace(desde) === "ahora" ? "Recién llegó" : "Espera " + hace(desde).replace(/^hace /, "")}</span>
+                    <button type="button" className="btn-chico sec" onClick={(e) => { e.stopPropagation(); cambiarTarea(t.id, { estado: "corr" }); abrirTarea(t.id); avisar("Cuéntale qué corregir en el hilo"); }}>Pedir corrección</button>
+                    <button type="button" className="btn-chico pri" onClick={(e) => { e.stopPropagation(); cambiarTarea(t.id, { estado: "comp" }); avisar("Aprobada y completada"); }}>Aprobar</button>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        )}
 
         {(() => {
           const lista = pines.map((id) => tareas.find((t) => t.id === id)).filter((t) => t && t.estado !== "comp");
@@ -1477,6 +1511,7 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
         <button type="button" className={"nav " + (vista === "inicio" ? "on" : "")} onClick={() => irA("inicio")}>
           <Svg tam={16} ancho={1.7}><path d="M3 10.5 12 3l9 7.5" /><path d="M5 9v11h14V9" /><path d="M10 20v-6h4v6" /></Svg>
           <span>Inicio</span>
+          {esperanRevision.length > 0 && <span className="cnt" title="Esperan tu revisión">{esperanRevision.length}</span>}
         </button>
         <button type="button" className={"nav " + (vista === "bandeja" ? "on" : "")} onClick={() => irA("bandeja")}>
           <Svg tam={16} ancho={1.7}><path d="M22 12h-6l-2 3h-4l-2-3H2" /><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" /></Svg>
@@ -1528,6 +1563,7 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
         <div className="tabs-movil">
           <button type="button" className={"nav nav-bandeja " + (vista === "inicio" ? "on" : "")} onClick={() => irA("inicio")} aria-label="Inicio" title="Inicio">
             <Svg tam={16} ancho={1.7}><path d="M3 10.5 12 3l9 7.5" /><path d="M5 9v11h14V9" /><path d="M10 20v-6h4v6" /></Svg>
+            {esperanRevision.length > 0 && <span className="cnt">{esperanRevision.length}</span>}
           </button>
           <button type="button" className={"nav nav-bandeja " + (vista === "bandeja" ? "on" : "")} onClick={() => irA("bandeja")} aria-label="Bandeja de entrada" title="Bandeja de entrada">
             <Svg tam={16} ancho={1.8}><path d="M22 12h-6l-2 3h-4l-2-3H2" /><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" /></Svg>
