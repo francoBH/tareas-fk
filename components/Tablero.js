@@ -8,6 +8,7 @@ import { IconoEstado, Bandera, Svg, IcoCal, IcoMas, IcoPuntos, IcoTacho, IcoLapi
 import Bandeja from "@/components/Bandeja";
 import VersionNueva from "@/components/VersionNueva";
 import Feedback from "@/components/Feedback";
+import Reuniones from "@/components/Reuniones";
 import Resumen, { armarBase, medirRango, minutosDe } from "@/components/Resumen";
 import { ATAJOS_RECURRENCIA, DIAS_SEMANA_CORTO, diaSemanaDe, mismaRecurrencia, opcionesDelMes, siguienteVuelta, textoRecurrencia, vueltasEntre } from "@/lib/recurrencia";
 
@@ -125,6 +126,8 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
   const [historial, setHistorial] = useState(() => cache?.historial || []);
   /* PRIORIDADES FIJADAS: los ids de MIS tareas fijadas, en su orden (como Blue OS). */
   const [pines, setPines] = useState(() => cache?.pines || []);
+  /* Tareas propuestas desde reuniones, esperando aprobación. */
+  const [propuestas, setPropuestas] = useState(() => cache?.propuestas || []);
   const [arrastrandoPin, setArrastrandoPin] = useState(null);
   const pinesRef = useRef(pines);
   pinesRef.current = pines;
@@ -179,14 +182,16 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
 
   /* ── lectura y tiempo real ── */
   const cargar = useCallback(async () => {
-    const [a, b, l, v, hi, pr] = await Promise.all([
+    const [a, b, l, v, hi, pr, pp] = await Promise.all([
       supabase.from("tareas").select("*").order("creada", { ascending: true }),
       supabase.from("comentarios").select("*").order("creado", { ascending: true }),
       supabase.from("lecturas").select("comentario_id"),
       supabase.from("vueltas").select("*"),
       supabase.from("historial").select("*").order("creado", { ascending: true }),
       supabase.from("prioridades").select("tarea_id, orden").order("orden", { ascending: true }),
+      supabase.from("propuestas").select("*").order("creado", { ascending: false }).limit(300),
     ]);
+    if (!pp.error) setPropuestas(pp.data || []);
     if (!pr.error) setPines((pr.data || []).map((x) => x.tarea_id));
     if (!v.error) setVueltas(v.data || []);
     if (!hi.error) setHistorial(hi.data || []);
@@ -217,6 +222,7 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
       .on("postgres_changes", { event: "*", schema: "public", table: "comentarios" }, aplicarCambio(setComs))
       .on("postgres_changes", { event: "*", schema: "public", table: "vueltas" }, aplicarCambio(setVueltas))
       .on("postgres_changes", { event: "*", schema: "public", table: "historial" }, aplicarCambio(setHistorial))
+      .on("postgres_changes", { event: "*", schema: "public", table: "propuestas" }, aplicarCambio(setPropuestas))
       /* Las prioridades son de cada uno: lo que cambie en otro dispositivo se vuelve a leer. */
       .on("postgres_changes", { event: "*", schema: "public", table: "prioridades" }, () => {
         supabase.from("prioridades").select("tarea_id, orden").order("orden", { ascending: true }).then(({ data, error }) => { if (!error) setPines((data || []).map((x) => x.tarea_id)); });
@@ -244,10 +250,10 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
   /* La copia del navegador se guarda sola, un rato después del último cambio. */
   useEffect(() => {
     const t = setTimeout(() => {
-      try { localStorage.setItem("tf-datos", JSON.stringify({ filas: filas.filter((f) => !String(f.id).startsWith("tmp-")), coms: coms.filter((c) => !String(c.id).startsWith("tmp-") && !c.subiendo), leidas: [...leidas], vueltas, historial: historial.slice(-400), pines })); } catch {}
+      try { localStorage.setItem("tf-datos", JSON.stringify({ filas: filas.filter((f) => !String(f.id).startsWith("tmp-")), coms: coms.filter((c) => !String(c.id).startsWith("tmp-") && !c.subiendo), leidas: [...leidas], vueltas, historial: historial.slice(-400), pines, propuestas: propuestas.slice(0, 200) })); } catch {}
     }, 500);
     return () => clearTimeout(t);
-  }, [filas, coms, leidas, vueltas, historial, pines]);
+  }, [filas, coms, leidas, vueltas, historial, pines, propuestas]);
 
   /* Las imágenes son privadas: se piden links firmados (valen 7 días) para las que falten. */
   useEffect(() => {
@@ -414,6 +420,18 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
   /* Mis subtareas pendientes, de tareas abiertas (para el Inicio). */
   const misSubs = tareas.filter((t) => t.estado !== "comp").flatMap((t) => t.subs.filter((x) => !x.hecha && x.resp === yo).map((x) => ({ ...x, tarea: t })))
     .sort((a, b) => (a.fecha || "9999").localeCompare(b.fecha || "9999"));
+
+  /* Crea una tarea ya armada (la usa Reuniones al aprobar). Devuelve su id, o null si falló. */
+  const crearTarea = async ({ nombre, tipo, prio, resp, fecha, descripcion }) => {
+    const id = crypto.randomUUID();
+    const fila = { id, nombre: nombre.trim().slice(0, 200), tipo: tipo || "pro", estado: "sin", prio: prio || null, resp: resp || [], fecha: fecha || null, creado_por: yo, descripcion: descripcion || "" };
+    setFilas((fs) => fs.concat([{ ...fila, creada: new Date().toISOString(), subtareas: [], seguidores: [], adjuntos: [] }]));
+    const { data, error } = await supabase.from("tareas").insert(fila).select().single();
+    if (error) { setFilas((fs) => fs.filter((f) => f.id !== id)); avisar("No se pudo crear la tarea."); return null; }
+    setFilas((fs) => fs.map((f) => (f.id === id ? data : f)));
+    return id;
+  };
+  const porAprobar = propuestas.filter((p) => p.estado === "pendiente").length;
 
   /* ── prioridades fijadas ── */
   const TOPE_PINES = 20;
@@ -736,6 +754,14 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
               ))}
             </div>
           </section>
+        )}
+
+        {porAprobar > 0 && (
+          <button type="button" className="ini-aviso-reu" onClick={() => irA("reuniones")}>
+            <Svg tam={16} ancho={1.7}><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></Svg>
+            <span><b>{porAprobar + (porAprobar === 1 ? " tarea de reuniones" : " tareas de reuniones")}</b> esperando que alguien las apruebe</span>
+            <span className="ini-aviso-ir">Revisar</span>
+          </button>
         )}
 
         <section className="ini-card ini-tareas" aria-label="Mis tareas">
@@ -1404,6 +1430,11 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
           <Svg tam={16} ancho={1.7}><path d="M3 3v18h18" /><path d="M7 15l4-4 3 3 6-6" /></Svg>
           <span>Resumen</span>
         </button>
+        <button type="button" className={"nav " + (vista === "reuniones" ? "on" : "")} onClick={() => irA("reuniones")}>
+          <Svg tam={16} ancho={1.7}><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></Svg>
+          <span>Reuniones</span>
+          {porAprobar > 0 && <span className="cnt" title="Tareas para aprobar">{porAprobar}</span>}
+        </button>
         <div className="side-linea" />
         {navs.map((n) => {
           const c = urgentes(n.id);
@@ -1443,6 +1474,9 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
           <button type="button" className={"nav nav-bandeja " + (vista === "resumen" ? "on" : "")} onClick={() => irA("resumen")} aria-label="Resumen" title="Resumen">
             <Svg tam={16} ancho={1.7}><path d="M3 3v18h18" /><path d="M7 15l4-4 3 3 6-6" /></Svg>
           </button>
+          <button type="button" className={"nav nav-bandeja " + (vista === "reuniones" ? "on" : "")} onClick={() => irA("reuniones")} aria-label="Reuniones" title="Reuniones">
+            <Svg tam={16} ancho={1.7}><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></Svg>{porAprobar > 0 && <span className="cnt">{porAprobar}</span>}
+          </button>
           {navs.map((n) => {
             const c = urgentes(n.id);
             return (
@@ -1456,7 +1490,15 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
           </button>
         </div>
 
-        {vista === "inicio" ? <div className="bdj-scroll">{inicio()}</div> : vista === "resumen" ? (<>
+        {vista === "inicio" ? <div className="bdj-scroll">{inicio()}</div> : vista === "reuniones" ? (<>
+          <div className="head">
+            <h1>Reuniones</h1>
+            <span className="sub">{porAprobar ? porAprobar + (porAprobar === 1 ? " tarea para aprobar" : " tareas para aprobar") : "Nada para aprobar"}</span>
+          </div>
+          <div className="bdj-scroll">
+            <Reuniones personas={personasLista} P={P} yo={yo} avisar={avisar} abrirTarea={abrirTarea} propuestas={propuestas} setPropuestas={setPropuestas} crearTarea={crearTarea} />
+          </div>
+        </>) : vista === "resumen" ? (<>
           <div className="head">
             <h1>Resumen</h1>
           </div>
