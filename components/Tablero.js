@@ -11,6 +11,7 @@ import Feedback from "@/components/Feedback";
 import Reuniones from "@/components/Reuniones";
 import Objetivos, { medirObjetivo } from "@/components/Objetivos";
 import Resumen, { armarBase, medirRango, minutosDe } from "@/components/Resumen";
+import { corridasDe, pideMotivo, MOTIVOS } from "@/lib/corridas";
 import { ATAJOS_RECURRENCIA, DIAS_SEMANA_CORTO, diaSemanaDe, mismaRecurrencia, opcionesDelMes, siguienteVuelta, textoRecurrencia, vueltasEntre } from "@/lib/recurrencia";
 
 /* ════════════════════════════════════════════════════════════════════════════════
@@ -46,6 +47,7 @@ const IcoPin = ({ tam = 15, lleno = false }) => (
 const RANGO_PRIO = { urgente: 0, alta: 1, media: 2, baja: 3 };
 const estDe = (id) => ESTADOS.find((e) => e.id === id) || ESTADOS[1];
 const priDe = (id) => PRIORIDADES.find((p) => p.id === id) || null;
+const IcoCorrida = ({ tam = 12 }) => <Svg tam={tam} ancho={2}><path d="M4 12h12" /><path d="m12 7 5 5-5 5" /><path d="M20 5v14" /></Svg>;
 const IcoObjetivo = ({ tam = 14 }) => <Svg tam={tam} ancho={1.8}><circle cx="12" cy="12" r="9" /><circle cx="12" cy="12" r="5" /><circle cx="12" cy="12" r="1.2" fill="currentColor" /></Svg>;
 const tipDe = (id) => TIPOS.find((x) => x.id === id) || null;
 const parar = (e) => { if (e && e.stopPropagation) e.stopPropagation(); };
@@ -87,7 +89,7 @@ function LineaCambio({ it, P, yo }) {
           : ico === "creada" ? <IcoMas tam={11} />
           : <Svg tam={11} ancho={2}><path d="M4.5 19.5h3.8L19 8.8a2.2 2.2 0 0 0-3.1-3.1L5.2 16.4l-.7 3.1Z" /></Svg>}
       </span>
-      <span className="act-txt"><b>{nombre}</b> {verbo}{antes && <> <s>{antes}</s></>}{despues && <> → <b className="act-nuevo">{despues}</b></>}</span>
+      <span className="act-txt"><b>{nombre}</b> {verbo}{antes && <> <s>{antes}</s></>}{despues && <> → <b className="act-nuevo">{despues}</b></>}{it.h?.motivo && <span className="act-motivo"> · {it.h.motivo}</span>}</span>
       <span className="act-hora" title={new Date(it.ts).toLocaleString("es-AR")}>{hace(it.ts)}</span>
     </div>
   );
@@ -137,6 +139,7 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
   pinesRef.current = pines;
   const [verCambios, setVerCambios] = useState(true);
   const [persoRep, setPersoRep] = useState(null);
+  const [motivoTxt, setMotivoTxt] = useState("");
   const [arrastraDesc, setArrastraDesc] = useState(false);
   const [subiendoDesc, setSubiendoDesc] = useState(0);
   /* Lo que YO ya leí de la bandeja (ids de comentarios). */
@@ -286,6 +289,8 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
       };
     });
   }, [filas, coms, hoy]);
+  /* FECHAS QUE SE CORREN: cuántas veces se pospuso cada tarea (del historial). */
+  const corridas = useMemo(() => corridasDe(filas, historial), [filas, historial]);
 
   /* ── escritura ── */
   const aDb = (c) => {
@@ -298,6 +303,8 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
     return o;
   };
   const guardar = useCallback(async (ids, cambios) => {
+    /* El motivo viaja SOLO con el cambio de fecha que lo pidió: en cualquier otro va vacío. */
+    if ("fecha" in cambios && !("motivo_fecha" in cambios)) cambios = { ...cambios, motivo_fecha: null };
     await Promise.all(ids.map((id) => pendientes.current.get(id)).filter(Boolean));
     /* 🔁 Una RECURRENTE no se cierra: al completarla pasa a su próxima fecha y vuelve a «Sin
        iniciar», con sus subtareas destildadas (como Blue OS). La vuelta queda anotada. */
@@ -310,7 +317,7 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
         for (const f of rec) {
           const prox = siguienteVuelta(f.fecha, f.recurrencia, hoyD);
           if (!prox) { resto.push(f.id); continue; }
-          const patch = { ...aDb(cambios), estado: "sin", fecha: prox.fecha, fecha_original: prox.fecha, recurrencia: prox.recurrencia, iniciada: null, completada: null,
+          const patch = { ...aDb(cambios), estado: "sin", fecha: prox.fecha, fecha_original: prox.fecha, motivo_fecha: null, recurrencia: prox.recurrencia, iniciada: null, completada: null,
             subtareas: (f.subtareas || []).map((x) => ({ ...x, hecha: false })) };
           const vuelta = { id: crypto.randomUUID(), tarea_id: f.id, vencia: f.fecha, completada: new Date().toISOString(), por: yo, resp: f.resp || [], iniciada: f.iniciada || null };
           setFilas((fs) => fs.map((x) => (x.id === f.id ? { ...x, ...patch } : x)));
@@ -896,6 +903,7 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
         </button>
         <button type="button" className={"celda " + (venc ? "venc " : "") + abiertoPop("fecha", t.id)} onClick={(e) => abrirPop(e, "fecha", t.id, 470, 430)} aria-label="Fecha">
           {t.fecha ? <span>{fechaRel(hoy, t.fecha)}</span> : <span className="hueco"><IcoCal tam={15} /></span>}
+          {corridas.get(t.id) && <span className="corrida-n" title={"Se corrió " + corridas.get(t.id).length + (corridas.get(t.id).length === 1 ? " vez" : " veces")}><IcoCorrida tam={11} />{corridas.get(t.id).length}</span>}
         </button>
         <div className="celda">{t.fecha && <span className="chip">{calendario(t.fecha)}</span>}</div>
         <button type="button" className={"celda " + abiertoPop("prio", t.id)} onClick={(e) => abrirPop(e, "prio", t.id, 200, 230)} aria-label="Prioridad">
@@ -1070,6 +1078,23 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
         }}>{borrarConf ? "Tocar otra vez para borrar" : "Borrar tarea"}</Opt>
       </>);
     }
+    if (pop.tipo === "motivo") {
+      const f = pop.fechaNueva;
+      const listo = (m) => { aplicar(tg, { fecha: f, motivo_fecha: m }); setPop(null); };
+      return (
+        <div className="mot">
+          <b className="mot-tit">¿Por qué se corre?</b>
+          <span className="mot-sub">{f ? "Pasa a " + fechaLarga(hoy, f).toLowerCase() : "Queda sin fecha"}. Queda anotado en la actividad y en el Resumen.</span>
+          {MOTIVOS.map((m) => <Opt key={m} onClick={() => listo(m)}>{m}</Opt>)}
+          <div className="mot-otro">
+            <input value={motivoTxt} maxLength={200} placeholder="Otro motivo…" aria-label="Otro motivo" onChange={(e) => setMotivoTxt(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && motivoTxt.trim()) listo(motivoTxt.trim()); }} />
+            <button type="button" className="btn-chico pri" disabled={!motivoTxt.trim()} onClick={() => listo(motivoTxt.trim())}>Guardar</button>
+          </div>
+          <button type="button" className="mot-cancelar" onClick={() => setPop(null)}>Cancelar: la fecha no cambia</button>
+        </div>
+      );
+    }
     if (pop.tipo === "cuenta") {
       return (<>
         <div className="yo" style={{ padding: "8px 10px" }}>
@@ -1084,7 +1109,12 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
     }
     if (pop.tipo === "fecha") {
       const actual = valorDe(tg, "fecha");
-      const poner = (f) => { aplicar(tg, { fecha: f }); setPop(null); };
+      const poner = (f) => {
+        /* Posponer pide un motivo (una tocada). Adelantar o poner la primera fecha, no. */
+        const ts = tg === "lote" ? tareas.filter((t) => sel[t.id]) : tg === "nueva" ? [] : [tareas.find((t) => t.id === tg)];
+        if (ts.some((t) => pideMotivo(t, f))) { setMotivoTxt(""); setPop((p) => ({ ...p, tipo: "motivo", fechaNueva: f, ancho: 290 })); return; }
+        aplicar(tg, { fecha: f }); setPop(null);
+      };
       const mes = calMes || hoy.slice(0, 7);
       const yy = Number(mes.slice(0, 4)), mm = Number(mes.slice(5, 7));
       const primero = (new Date(yy, mm - 1, 1).getDay() + 6) % 7;
@@ -1276,6 +1306,11 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
             </button>
             {tA.fecha && <span className="chip">{calendario(tA.fecha)}</span>}
             {tA.recurrencia && <button type="button" className="dato-btn rep" onClick={(ev) => abrirPop(ev, "fecha", tA.id, 470, 430)} title="Se repite"><IcoRepite tam={14} /><span>{textoRecurrencia(tA.recurrencia)}</span></button>}
+            {corridas.get(tA.id) && (() => {
+              const cs = corridas.get(tA.id);
+              const detalle = "Primera fecha: " + fechaCorta(cs[0].de) + cs.map((c) => "\n• " + fechaCorta(c.de) + " → " + (c.a ? fechaCorta(c.a) : "sin fecha") + (c.motivo ? ": " + c.motivo : "")).join("");
+              return <span className="chip corrida" title={detalle}><IcoCorrida tam={13} />Se corrió {cs.length} {cs.length === 1 ? "vez" : "veces"}</span>;
+            })()}
             <button type="button" className="dato-btn" onClick={(ev) => abrirPop(ev, "obj", tA.id, 260, 220)} title="El objetivo al que suma esta tarea">
               <IcoObjetivo tam={14} />{objDe(tA.objetivo_id) ? <span>{objDe(tA.objetivo_id).nombre}</span> : <span style={{ color: "var(--t3)" }}>Sin objetivo</span>}
             </button>
@@ -1541,7 +1576,7 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
             <h1>Resumen</h1>
           </div>
           <div className="bdj-scroll">
-            <Resumen tareas={tareas} vueltas={vueltas} P={P} claves={claves.filter((k) => P[k]?.rol !== "Solo prueba")} abrirTarea={abrirTarea} tipDe={tipDe} />
+            <Resumen tareas={tareas} vueltas={vueltas} corridas={corridas} P={P} claves={claves.filter((k) => P[k]?.rol !== "Solo prueba")} abrirTarea={abrirTarea} tipDe={tipDe} />
           </div>
         </>) : vista === "bandeja" ? (<>
           <div className="head">

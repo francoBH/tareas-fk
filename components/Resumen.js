@@ -1,6 +1,7 @@
 "use client";
 import { useMemo, useState } from "react";
 import { Caras, IconoEstado, Svg } from "@/components/piezas";
+import { MOTIVOS, motivoGrupo } from "@/lib/corridas";
 import { dias, fechaCorta, hoyIso, iso, mas, mesKey, tituloMes } from "@/lib/fechas";
 
 /* ════════════════════════════════════════════════════════════════════════════════
@@ -117,7 +118,7 @@ export function medirRango(base, d, h, hoy) {
   return { completadas, creadas, vencian, cumplidas, conFecha, aTiempo, ciclo, trabajo, delegadas, minLiberados };
 }
 
-export default function Resumen({ tareas, vueltas = [], P, claves, abrirTarea, tipDe }) {
+export default function Resumen({ tareas, vueltas = [], corridas = new Map(), P, claves, abrirTarea, tipDe }) {
   const hoy = hoyIso();
   const [preset, setPreset] = useState("30");
   const [tipo, setTipo] = useState(null);
@@ -142,6 +143,25 @@ export default function Resumen({ tareas, vueltas = [], P, claves, abrirTarea, t
   const atrasadas = abiertas.filter((t) => t.fecha && t.fecha < hoy);
   const reprogramadas = abiertas.filter((t) => t.fecha_original && t.fecha && t.fecha !== t.fecha_original);
   const enCurso = abiertas.filter((t) => ["prog", "rev", "corr"].includes(t.estado));
+
+  /* ── FECHAS QUE SE CORREN (19-nov): de las tareas cuya PRIMERA fecha caía en el período, cuántas
+     se pospusieron al menos una vez. Y cada posposición del período, con su motivo. ── */
+  const reales = base.filter((t) => !String(t.id).startsWith("v-") && !t.recurrencia);
+  const corrDe = (d, h) => {
+    const comprometidas = reales.filter((t) => t.fecha_original && t.fecha_original >= d && t.fecha_original <= h && t.fecha_original <= hoy);
+    const movidas = comprometidas.filter((t) => corridas.has(t.id));
+    const eventos = [];
+    reales.forEach((t) => (corridas.get(t.id) || []).forEach((c) => { const dd = c.cuando && diaLocal(c.cuando); if (dd && dd >= d && dd <= h) eventos.push({ ...c, t }); }));
+    return { comprometidas, movidas, eventos, pct: pct(movidas.length, comprometidas.length) };
+  };
+  const cr = useMemo(() => corrDe(desde, hasta), [reales, corridas, desde, hasta, hoy]); // eslint-disable-line react-hooks/exhaustive-deps
+  const crA = useMemo(() => corrDe(desdeA, hastaA), [reales, corridas, desdeA, hastaA, hoy]); // eslint-disable-line react-hooks/exhaustive-deps
+  const corrMed = mediana(cr.eventos.filter((e) => e.a).map((e) => dias(e.de, e.a)));
+  const corrMedA = mediana(crA.eventos.filter((e) => e.a).map((e) => dias(e.de, e.a)));
+  const unicas = (es) => [...new Map(es.map((e) => [e.t.id, e.t])).values()];
+  const motivos = MOTIVOS.concat(["Otro", "Sin motivo"]).map((g) => ({ g, es: cr.eventos.filter((e) => motivoGrupo(e.motivo) === g) })).filter((x) => x.es.length);
+  const topeM = Math.max(1, ...motivos.map((x) => x.es.length));
+  const diasTxt = (n) => (n === null ? "0 días" : unDecimal(n) + (unDecimal(n) === "1" ? " día" : " días"));
 
   const ant = (ahora, antes, fmt, difFmt) => ({ txt: fmt(antes), dif: ahora - antes, difTxt: difFmt(ahora - antes) });
   const nInt = (n) => String(n);
@@ -169,7 +189,8 @@ export default function Resumen({ tareas, vueltas = [], P, claves, abrirTarea, t
     const comp = m.completadas.filter((t) => t.resp.includes(k));
     const venc = m.vencian.filter((t) => t.resp.includes(k));
     const cumpl = m.cumplidas.filter((t) => t.resp.includes(k));
-    return { k, abiertas: mias.filter((t) => t.estado !== "comp"), comp, cumpl: pct(cumpl.length, venc.length), venc: venc.length, atras: mias.filter((t) => t.estado !== "comp" && t.fecha && t.fecha < hoy) };
+    const compK = cr.comprometidas.filter((t) => t.resp.includes(k)), movK = cr.movidas.filter((t) => t.resp.includes(k));
+    return { k, reprog: pct(movK.length, compK.length), movK, abiertas: mias.filter((t) => t.estado !== "comp"), comp, cumpl: pct(cumpl.length, venc.length), venc: venc.length, atras: mias.filter((t) => t.estado !== "comp" && t.fecha && t.fecha < hoy) };
   }).filter((r) => r.abiertas.length || r.comp.length);
 
   /* ── TIEMPO DE RESOLUCIÓN por persona (pedido de Franco, 18 nov): desde que se CREA la tarea hasta
@@ -283,6 +304,38 @@ export default function Resumen({ tareas, vueltas = [], P, claves, abrirTarea, t
         <button type="button" className="rs-hoy-dato" onClick={() => ver("Reprogramadas", reprogramadas)}><b>{reprogramadas.length}</b> reprogramadas</button>
       </div>
 
+      <div className="rs-card">
+        <div className="rs-card-cab">
+          <h3>Fechas que se corren<Ayuda txt="Cuando una fecha se pasa para más adelante (o se saca), la app pide el motivo. Las recurrentes no cuentan: su fecha avanza sola. Lo de antes del 14 de noviembre no tiene fecha ni motivo: cuenta en el % pero no en las veces." /></h3>
+          <span className="rs-rango">Posponer, no adelantar</span>
+        </div>
+        <div className="corr">
+          <div className="rs-kpis">
+            <Kpi etiqueta="% Reprogramadas" valor={cr.movidas.length + " de " + cr.comprometidas.length} extra={nPct(cr.pct)} tono={cr.pct > 30 ? "rojo" : "azul"}
+              onClick={() => ver("Se corrieron (vencían en el período)", cr.movidas)}
+              ayuda="De las tareas cuya primera fecha caía en el período, cuántas se pospusieron al menos una vez."
+              antes={ant(cr.pct, crA.pct, nPct, pp)} mejorSiSube={false} />
+            <Kpi etiqueta="Veces que se corrió" valor={nInt(cr.eventos.length)} onClick={() => ver("Se corrieron en el período", unicas(cr.eventos))}
+              ayuda="Cuántas veces se pasó una fecha para más adelante dentro del período. Una misma tarea puede sumar varias."
+              antes={ant(cr.eventos.length, crA.eventos.length, nInt, nInt)} mejorSiSube={false} />
+            <Kpi etiqueta="Cuánto se corre" valor={diasTxt(corrMed)}
+              ayuda="Mediana de los días que se mueve la fecha cada vez que se pospone."
+              antes={corrMed !== null && corrMedA !== null ? { txt: diasTxt(corrMedA), dif: corrMed - corrMedA, difTxt: diasTxt(Math.abs(corrMed - corrMedA)) } : null} mejorSiSube={false} />
+          </div>
+          <div className="corr-mot">
+            <span className="corr-mot-tit">Por qué</span>
+            {!motivos.length && <span className="rs-vacio-chico">No se corrió ninguna fecha en este período.</span>}
+            {motivos.map((x) => (
+              <button key={x.g} type="button" className="rs-res-tramo corr-tramo" onClick={() => ver(x.g, unicas(x.es))}>
+                <span className="rs-res-et">{x.g}</span>
+                <span className="rs-res-barra"><span style={{ width: (x.es.length / topeM) * 100 + "%", background: x.g === "Sin motivo" ? "var(--t4)" : undefined }} /></span>
+                <span className="rs-res-c num">{x.es.length}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
       <div className="rs-grilla">
         <div className="rs-card">
           <div className="rs-card-cab">
@@ -388,7 +441,7 @@ export default function Resumen({ tareas, vueltas = [], P, claves, abrirTarea, t
       <div className="rs-card">
         <h3>Por persona</h3>
         <div className="rs-personas">
-          <div className="rs-pers rs-pers-cab"><span>Persona</span><span><span className="solo-ancho">Completadas</span><span className="solo-angosto">Hechas</span></span><span><span className="solo-ancho">% Cumplimiento</span><span className="solo-angosto">% Cumpl.</span></span><span>Abiertas</span><span>Atrasadas</span></div>
+          <div className="rs-pers rs-pers-cab"><span>Persona</span><span><span className="solo-ancho">Completadas</span><span className="solo-angosto">Hechas</span></span><span><span className="solo-ancho">% Cumplimiento</span><span className="solo-angosto">% Cumpl.</span></span><span>Abiertas</span><span>Atrasadas</span><span><span className="solo-ancho">% Reprogramadas</span><span className="solo-angosto">% Reprog.</span></span></div>
           {!porPersona.length && <span className="rs-vacio-chico">Todavía no hay tareas con responsable.</span>}
           {porPersona.map((r) => {
             const p = P[r.k];
@@ -399,6 +452,7 @@ export default function Resumen({ tareas, vueltas = [], P, claves, abrirTarea, t
                 <span className="num azul">{r.venc ? r.cumpl + "%" : "0%"}</span>
                 <button type="button" className="num" onClick={() => ver(p.nombre.split(" ")[0] + " · abiertas", r.abiertas)}>{r.abiertas.length}</button>
                 <button type="button" className={"num" + (r.atras.length ? " rojo" : "")} onClick={() => ver(p.nombre.split(" ")[0] + " · atrasadas", r.atras)}>{r.atras.length}</button>
+                <button type="button" className={"num" + (r.reprog > 30 ? " rojo" : "")} onClick={() => ver(p.nombre.split(" ")[0] + " · se corrieron", r.movK)}>{r.reprog}%</button>
               </div>
             );
           })}
