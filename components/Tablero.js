@@ -47,6 +47,7 @@ const IcoPin = ({ tam = 15, lleno = false }) => (
 const RANGO_PRIO = { urgente: 0, alta: 1, media: 2, baja: 3 };
 const estDe = (id) => ESTADOS.find((e) => e.id === id) || ESTADOS[1];
 const priDe = (id) => PRIORIDADES.find((p) => p.id === id) || null;
+const IcoPlantilla = ({ tam = 13 }) => <Svg tam={tam} ancho={1.8}><rect x="4" y="3.5" width="16" height="17" rx="2.5" /><path d="M8 8h8" /><path d="M8 12h8" /><path d="M8 16h5" /></Svg>;
 const IcoCorrida = ({ tam = 12 }) => <Svg tam={tam} ancho={2}><path d="M4 12h12" /><path d="m12 7 5 5-5 5" /><path d="M20 5v14" /></Svg>;
 const IcoObjetivo = ({ tam = 14 }) => <Svg tam={tam} ancho={1.8}><circle cx="12" cy="12" r="9" /><circle cx="12" cy="12" r="5" /><circle cx="12" cy="12" r="1.2" fill="currentColor" /></Svg>;
 const tipDe = (id) => TIPOS.find((x) => x.id === id) || null;
@@ -134,6 +135,8 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
   const [propuestas, setPropuestas] = useState(() => cache?.propuestas || []);
   /* Objetivos: metas con fecha que juntan tareas (como Blue OS). */
   const [objetivos, setObjetivos] = useState(() => cache?.objetivos || []);
+  /* Plantillas: tareas que se repiten a mano, guardadas con su descripción y subtareas. */
+  const [plantillas, setPlantillas] = useState(() => cache?.plantillas || []);
   const [arrastrandoPin, setArrastrandoPin] = useState(null);
   const pinesRef = useRef(pines);
   pinesRef.current = pines;
@@ -189,7 +192,7 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
 
   /* ── lectura y tiempo real ── */
   const cargar = useCallback(async () => {
-    const [a, b, l, v, hi, pr, pp, ob] = await Promise.all([
+    const [a, b, l, v, hi, pr, pp, ob, pl] = await Promise.all([
       supabase.from("tareas").select("*").order("creada", { ascending: true }),
       supabase.from("comentarios").select("*").order("creado", { ascending: true }),
       supabase.from("lecturas").select("comentario_id"),
@@ -198,7 +201,9 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
       supabase.from("prioridades").select("tarea_id, orden").order("orden", { ascending: true }),
       supabase.from("propuestas").select("*").order("creado", { ascending: false }).limit(300),
       supabase.from("objetivos").select("*").order("creado", { ascending: true }),
+      supabase.from("plantillas").select("*").order("nombre", { ascending: true }),
     ]);
+    if (!pl.error) setPlantillas(pl.data || []);
     if (!ob.error) setObjetivos(ob.data || []);
     if (!pp.error) setPropuestas(pp.data || []);
     if (!pr.error) setPines((pr.data || []).map((x) => x.tarea_id));
@@ -233,6 +238,7 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
       .on("postgres_changes", { event: "*", schema: "public", table: "historial" }, aplicarCambio(setHistorial))
       .on("postgres_changes", { event: "*", schema: "public", table: "propuestas" }, aplicarCambio(setPropuestas))
       .on("postgres_changes", { event: "*", schema: "public", table: "objetivos" }, aplicarCambio(setObjetivos))
+      .on("postgres_changes", { event: "*", schema: "public", table: "plantillas" }, aplicarCambio(setPlantillas))
       /* Las prioridades son de cada uno: lo que cambie en otro dispositivo se vuelve a leer. */
       .on("postgres_changes", { event: "*", schema: "public", table: "prioridades" }, () => {
         supabase.from("prioridades").select("tarea_id, orden").order("orden", { ascending: true }).then(({ data, error }) => { if (!error) setPines((data || []).map((x) => x.tarea_id)); });
@@ -260,10 +266,10 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
   /* La copia del navegador se guarda sola, un rato después del último cambio. */
   useEffect(() => {
     const t = setTimeout(() => {
-      try { localStorage.setItem("tf-datos", JSON.stringify({ filas: filas.filter((f) => !String(f.id).startsWith("tmp-")), coms: coms.filter((c) => !String(c.id).startsWith("tmp-") && !c.subiendo), leidas: [...leidas], vueltas, historial: historial.slice(-400), pines, propuestas: propuestas.slice(0, 200), objetivos })); } catch {}
+      try { localStorage.setItem("tf-datos", JSON.stringify({ filas: filas.filter((f) => !String(f.id).startsWith("tmp-")), coms: coms.filter((c) => !String(c.id).startsWith("tmp-") && !c.subiendo), leidas: [...leidas], vueltas, historial: historial.slice(-400), pines, propuestas: propuestas.slice(0, 200), objetivos, plantillas })); } catch {}
     }, 500);
     return () => clearTimeout(t);
-  }, [filas, coms, leidas, vueltas, historial, pines, propuestas, objetivos]);
+  }, [filas, coms, leidas, vueltas, historial, pines, propuestas, objetivos, plantillas]);
 
   /* Las imágenes son privadas: se piden links firmados (valen 7 días) para las que falten. */
   useEffect(() => {
@@ -403,12 +409,20 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
     /* La tarea aparece YA, con un id provisorio, y se cambia por la de la base cuando vuelve. */
     const id = crypto.randomUUID();
     const fila = { id, nombre: n.nombre.trim(), tipo: n.tipo, estado: n.estado, prio: n.prio, resp: n.resp, fecha: n.fecha, creado_por: yo, recurrencia: n.recurrencia || null };
+    const pl = n.plantilla;
+    if (pl) {
+      const ahora = new Date().toISOString();
+      fila.descripcion = pl.descripcion || "";
+      fila.subtareas = (pl.subtareas || []).map((x) => ({ id: crypto.randomUUID(), nombre: x.nombre, hecha: false, resp: null, fecha: null, creada: ahora }));
+      if (pl.minutos) fila.minutos = pl.minutos;
+    }
     /* Recién creada se abre ENTERA, con la descripción lista para escribir (pedido de Franco,
        14 nov 2026): el nombre solo no alcanza para que el otro sepa qué hacer. */
     setNueva(null);
-    setFilas((fs) => fs.concat([{ ...fila, creada: new Date().toISOString(), subtareas: [], seguidores: [], descripcion: "", adjuntos: [] }]));
+    setFilas((fs) => fs.concat([{ subtareas: [], descripcion: "", ...fila, creada: new Date().toISOString(), seguidores: [], adjuntos: [] }]));
     abrirTarea(id);
-    setEditDesc(true); setDescDraft("");
+    /* Con plantilla la descripción ya viene escrita: se abre para leer, no en blanco para escribir. */
+    if (!pl) { setEditDesc(true); setDescDraft(""); }
     /* Lo que se edite antes de que la base confirme espera a que la tarea exista (ver `guardar`). */
     const alta = supabase.from("tareas").insert(fila).select().single();
     pendientes.current.set(id, alta);
@@ -897,6 +911,9 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
           <Bandera prio={n.prio} />{pr ? pr.label : "Prioridad"}
         </button>
         <button type="button" className={"nchip " + (tp ? "puesto" : "falta")} onClick={(e) => abrirPop(e, "tipo", "nueva", 240, 110)}>{tp ? tp.label : "Falta tipo"}</button>
+        <button type="button" className={"nchip " + (n.plantilla ? "puesto" : "")} onClick={(e) => abrirPop(e, "plant", "nueva", 300, 320)} title="Usar una plantilla: trae la descripción y las subtareas">
+          <IcoPlantilla />{n.plantilla ? n.plantilla.nombre : "Plantilla"}
+        </button>
         <span className="nsep" />
         <button type="button" className="btn-chico sec" onClick={() => { setNueva(null); setPop(null); }}>Cancelar</button>
         <button type="button" className="btn-chico pri" onClick={guardarNueva} disabled={!(n.nombre.trim() && n.tipo)}>Guardar</button>
@@ -1084,6 +1101,29 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
         </button>
       </>);
     }
+    if (pop.tipo === "plant") {
+      const elegida = nueva?.plantilla?.id;
+      const usar = (p) => {
+        setNueva((x) => ({ ...x, nombre: x.nombre.trim() ? x.nombre : p.nombre.slice(0, 65), tipo: p.tipo || x.tipo, prio: p.prio || x.prio, resp: p.resp && p.resp.length ? p.resp : x.resp, plantilla: p }));
+        setPop(null);
+      };
+      return (<>
+        {!plantillas.length && <span className="pop-nota">Todavía no hay plantillas. Se guardan desde el menú «…» de una tarea: «Guardar como plantilla».</span>}
+        {plantillas.map((p) => {
+          const ns = (p.subtareas || []).length;
+          return (
+            <div key={p.id} className="plant-op">
+              <Opt on={elegida === p.id} onClick={() => usar(p)}>
+                <IcoPlantilla /><span className="plant-nom">{p.nombre}<em>{[ns ? ns + (ns === 1 ? " subtarea" : " subtareas") : "", p.descripcion ? "con descripción" : ""].filter(Boolean).join(" · ") || "solo nombre y datos"}</em></span>
+              </Opt>
+              <button type="button" className="plant-x" title="Borrar la plantilla" aria-label={"Borrar la plantilla " + p.nombre}
+                onClick={async () => { setPlantillas((xs) => xs.filter((x) => x.id !== p.id)); if (elegida === p.id) setNueva((x) => ({ ...x, plantilla: null })); const { error } = await supabase.from("plantillas").delete().eq("id", p.id); avisar(error ? "No se pudo borrar." : "Plantilla borrada"); }}><IcoX tam={12} /></button>
+            </div>
+          );
+        })}
+        {elegida && <><span className="psep" /><Opt onClick={() => { setNueva((x) => ({ ...x, plantilla: null })); setPop(null); }}><span style={{ color: "var(--t3)" }}>No usar plantilla</span></Opt></>}
+      </>);
+    }
     if (pop.tipo === "menu") {
       const t = tareas.find((x) => x.id === tg);
       if (!t) return null;
@@ -1096,6 +1136,16 @@ export default function Tablero({ personasLista, yo, tema, cambiarTema }) {
           const { error } = await supabase.from("tareas").insert({ nombre: t.nombre + " (Copia)", tipo: t.tipo, estado: t.estado, prio: t.prio, resp: t.resp, fecha: t.fecha, descripcion: t.desc, subtareas: t.subs, creado_por: yo });
           if (error) avisar("No se pudo duplicar."); else { avisar("Tarea duplicada"); cargar(); }
         }}>Duplicar</Opt>
+        <Opt onClick={async () => {
+          setPop(null);
+          const datos = { nombre: t.nombre.slice(0, 120), tipo: t.tipo, prio: t.prio, resp: t.resp, minutos: t.minutos || null, descripcion: t.desc, subtareas: t.subs.map((x) => ({ nombre: x.nombre })) };
+          const igual = plantillas.find((p) => p.nombre.trim().toLowerCase() === t.nombre.trim().toLowerCase());
+          const q = igual ? supabase.from("plantillas").update(datos).eq("id", igual.id).select().single() : supabase.from("plantillas").insert({ ...datos, creado_por: yo }).select().single();
+          const { data, error } = await q;
+          if (error) { avisar("No se pudo guardar la plantilla."); return; }
+          setPlantillas((xs) => (igual ? xs.map((x) => (x.id === data.id ? data : x)) : xs.concat([data])).sort((a, b) => a.nombre.localeCompare(b.nombre)));
+          avisar(igual ? "Plantilla actualizada" : "Guardada como plantilla");
+        }}>Guardar como plantilla</Opt>
         <Opt onClick={() => {
           setPop(null);
           try { navigator.clipboard.writeText(window.location.origin + window.location.pathname + "?tarea=" + t.id); } catch {}

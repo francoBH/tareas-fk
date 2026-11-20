@@ -961,3 +961,11 @@ div.desc{cursor:text}
   .rev-fila>:nth-child(1){grid-area:ico}.rev-fila>:nth-child(2){grid-area:nom}.rev-fila>:nth-child(3){grid-area:esp}
   .rev-fila>:nth-child(4){grid-area:cor;justify-self:start}.rev-fila>:nth-child(5){grid-area:apr;justify-self:end}
 }
+
+/* ═════ PLANTILLAS (19-nov) ═════ */
+.plant-op{display:flex;align-items:center;gap:2px}
+.plant-op>.opt{flex:1;min-width:0}
+.plant-nom{display:flex;flex-direction:column;min-width:0;text-align:left}
+.plant-nom em{font-style:normal;font-size:11.5px;color:var(--t3);font-weight:400}
+.plant-x{width:26px;height:26px;flex:none;border-radius:7px;display:inline-flex;align-items:center;justify-content:center;color:var(--t3)}
+.plant-x:hover{background:var(--bg-4);color:var(--rojo-txt)}
